@@ -336,26 +336,26 @@ devices:
 
 ### 1. 配置加载
 设备配置在系统启动时自动加载:
-1. [SaimosenIntegration.onInit()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L46-L59) 方法读取 `ecat-config.yml` 配置文件
-2. 遍历配置中的设备列表，为每个设备调用 [createDevice()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L132-L182) 方法
-3. 验证设备配置是否符合 [ConfigDefinition](file://D:\WorkingSpace\gitCode\StationComputer\ecat-core\src\main\java\com\ecat\core\Utils\DynamicConfig\ConfigDefinition.java#L23-L400) 规范
+1. `SaimosenIntegration.onInit()` 方法读取 `ecat-config.yml` 配置文件
+2. 遍历配置中的设备列表，为每个设备调用 `createDevice()` 方法
+3. 验证设备配置是否符合 `ConfigDefinition` 规范
 4. 根据设备类别创建对应的设备实例
 
 ### 2. 设备启动
 设备启动流程:
-1. 系统调用 [SaimosenIntegration.onStart()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L62-L69) 方法
+1. 系统调用 `SaimosenIntegration.onStart()` 方法
 2. 遍历所有已创建的设备实例
 3. 调用每个设备的 `start()` 方法开始设备通信和数据采集
 
 ### 3. 设备暂停
 当系统需要暂停设备操作时:
-1. 系统调用 [SaimosenIntegration.onPause()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L71-L77) 方法
+1. 系统调用 `SaimosenIntegration.onPause()` 方法
 2. 遍历所有设备实例
 3. 调用每个设备的 `stop()` 方法停止数据采集任务
 
 ### 4. 资源释放
 当系统关闭或模块卸载时:
-1. 系统调用 [SaimosenIntegration.onRelease()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L79-L86) 方法
+1. 系统调用 `SaimosenIntegration.onRelease()` 方法
 2. 遍历所有设备实例
 3. 调用每个设备的 `release()` 方法释放占用的资源
 4. 清空设备列表
@@ -365,7 +365,7 @@ devices:
 要添加对新设备的支持，请按照以下步骤操作:
 
 ### 1. 创建设备类
-创建新的设备类，继承 [SmsDeviceBase](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SmsDeviceBase.java#L22-L137) 类:
+创建新的设备类，继承 `SmsDeviceBase` 类:
 
 ```java
 public class NewDevice extends SmsDeviceBase {
@@ -399,7 +399,7 @@ public class NewDevice extends SmsDeviceBase {
 ```
 
 ### 2. 更新设备配置定义
-在 [SaimosenIntegration.getDeviceConfigDefinition()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L88-L130) 方法中，如果需要添加新的设备类别，更新设备类别的枚举值:
+在 `SaimosenIntegration.getDeviceConfigDefinition()` 方法中，如果需要添加新的设备类别，更新设备类别的枚举值:
 
 ```java
 Set<String> classValidValues = new HashSet<>(Arrays.asList(
@@ -411,7 +411,7 @@ Set<String> classValidValues = new HashSet<>(Arrays.asList(
 ```
 
 ### 3. 更新设备创建逻辑
-在 [SaimosenIntegration.createDevice()](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\saimosen\src\main\java\com\ecat\integration\SaimosenIntegration\SaimosenIntegration.java#L132-L182) 方法中添加新设备的创建逻辑:
+在 `SaimosenIntegration.createDevice()` 方法中添加新设备的创建逻辑:
 
 ```java
 @Override
@@ -441,7 +441,7 @@ devices:
 ```
 
 ### 5. 实现设备属性（可选）
-如果设备需要特殊的属性控制，可以创建自定义属性类，继承相应的属性基类，如 [ModbusFloatAttribute](file://D:\WorkingSpace\gitCode\StationComputer\ecat-integrations\modbus\src\main\java\com\ecat\integration\ModbusIntegration\Attribute\ModbusFloatAttribute.java#L18-L162) 或 [CommandAttribute](file://D:\WorkingSpace\gitCode\StationComputer\ecat-core\src\main\java\com\ecat\core\State\CommandAttribute.java#L11-L123)。
+如果设备需要特殊的属性控制，可以创建自定义属性类，继承相应的属性基类，如 `ModbusFloatAttribute` 或 `CommandAttribute`。
 
 ## 开发说明
 
@@ -488,3 +488,13 @@ devices:
 3. 部分设备可能需要特定的接线方式，请参考设备手册
 
 4. 在生产环境中，建议关闭调试模式以提高性能
+
+## 协议声明
+1. 核心依赖：本插件基于 **ECAT Core**（Apache License 2.0）开发，Core 项目地址：https://github.com/ecat-project/ecat-core。
+2. 插件自身：本插件的源代码采用 [Apache License 2.0] 授权。
+3. 合规说明：使用本插件需遵守 ECAT Core 的 Apache 2.0 协议规则，若复用 ECAT Core 代码片段，需保留原版权声明。
+
+### 许可证获取
+- ECAT Core 完整许可证：https://github.com/ecat-project/ecat-core/blob/main/LICENSE
+- 本插件许可证：./LICENSE
+
