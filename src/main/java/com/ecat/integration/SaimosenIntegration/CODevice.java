@@ -1,5 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.AttributeClass;
@@ -42,8 +43,8 @@ public class CODevice extends SmsDeviceBase {
 
     private DeviceStatus deviceStatus = DeviceStatus.UNKNOWN;
 
-    public CODevice(Map<String, Object> config) {
-        super(config);
+    public CODevice(ConfigEntry entry) {
+        super(entry);
     }
 
     @Override

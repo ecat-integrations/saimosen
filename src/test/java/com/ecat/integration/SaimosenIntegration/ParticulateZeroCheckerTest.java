@@ -1,5 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Device.DeviceBase;
@@ -58,9 +59,8 @@ public class ParticulateZeroCheckerTest {
     public void setUp() throws Exception {
         mockitoCloseable = MockitoAnnotations.openMocks(this);
 
-        // 初始化基础配置
-        Map<String, Object> config = new HashMap<>();
-        checker = new ParticulateZeroChecker(config);
+        ConfigEntry entry = createTestEntry();
+        checker = new ParticulateZeroChecker(entry);
 
         // 注入依赖
         setPrivateField(checker, "core", mockEcatCore);
@@ -101,6 +101,33 @@ public class ParticulateZeroCheckerTest {
     @After
     public void tearDown() throws Exception {
         mockitoCloseable.close();
+    }
+
+    private ConfigEntry createTestEntry() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("class", "air.monitor.pm.qc");
+        config.put("modbus_protocol", "RTU");
+
+        Map<String, Object> serialSettings = new HashMap<>();
+        serialSettings.put("serial_port", "COM1");
+        serialSettings.put("baudrate", "9600");
+        serialSettings.put("data_bits", "8");
+        serialSettings.put("stop_bits", "1");
+        serialSettings.put("parity", "None");
+        serialSettings.put("timeout", 2000);
+
+        Map<String, Object> commSettings = new HashMap<>();
+        commSettings.put("serial_settings", serialSettings);
+        commSettings.put("slave_id", 1);
+        config.put("comm_settings", commSettings);
+
+        return new ConfigEntry.Builder()
+            .entryId("test-entry-pm-qc")
+            .coordinate("com.ecat:integration-saimosen")
+            .uniqueId("saimosen_air.monitor.pm.qc")
+            .title("颗粒物零点校验仪")
+            .data(config)
+            .build();
     }
 
     // 反射辅助方法

@@ -19,6 +19,7 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.I18n.ResourceLoader;
@@ -32,40 +33,39 @@ import com.serotonin.modbus4j.msg.WriteRegisterResponse;
 /**
  * SampleTube设备类的单元测试
  * 基于最新协议版本（地址0x0000-0x000A，共11个寄存器）
- * 
+ *
  * @version V1.1
  */
 public class SampleTubeTest {
 
     @Mock
     private EcatCore mockCore;
-    
+
     @Mock
     private ModbusIntegration mockModbusIntegration;
-    
+
     @Mock
     private ModbusSource mockModbusSource;
-    
+
     @Mock
     private ScheduledExecutorService mockExecutor;
-    
+
     @Mock
     private ReadHoldingRegistersResponse mockReadResponse;
-    
+
     @Mock
     private WriteRegisterResponse mockWriteResponse;
-    @Mock 
+    @Mock
     private BusRegistry mockBusRegistry;
 
     private SampleTube sampleTube;
-    private Map<String, Object> config;
 
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = findField(target.getClass(), fieldName);
         field.setAccessible(true);
         field.set(target, value);
     }
-    
+
     private Field findField(Class<?> clazz, String fieldName) throws NoSuchFieldException {
         try {
             return clazz.getDeclaredField(fieldName);
@@ -81,33 +81,47 @@ public class SampleTubeTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        // 创建测试配置
-        config = new HashMap<>();
-        config.put("id", "sample-tube-001");
+
+        ConfigEntry entry = createTestEntry();
+
+        // 创建SampleTube实例
+        sampleTube = new SampleTube(entry);
+    }
+
+    private ConfigEntry createTestEntry() {
+        Map<String, Object> config = new HashMap<>();
         config.put("name", "采样管加热器");
         config.put("class", "sample.tube");
         config.put("sn", "ST-001");
         config.put("vendor", "赛默森环保");
         config.put("model", "SMS-D-H");
-        
+        config.put("modbus_protocol", "RTU");
+
+        Map<String, Object> serialSettings = new HashMap<>();
+        serialSettings.put("serial_port", "COM1");
+        serialSettings.put("baudrate", "9600");
+        serialSettings.put("data_bits", "8");
+        serialSettings.put("stop_bits", "1");
+        serialSettings.put("parity", "None");
+        serialSettings.put("timeout", 2000);
+
         Map<String, Object> commSettings = new HashMap<>();
-        commSettings.put("port", "COM1");
-        commSettings.put("baudRate", 9600);
-        commSettings.put("numDataBit", 8);
-        commSettings.put("numStopBit", 1);
-        commSettings.put("parity", "N");
-        commSettings.put("slaveId", 1);
-        commSettings.put("timeout", 2000);
+        commSettings.put("serial_settings", serialSettings);
+        commSettings.put("slave_id", 1);
         config.put("comm_settings", commSettings);
 
-        // 创建SampleTube实例
-        sampleTube = new SampleTube(config);
+        return new ConfigEntry.Builder()
+            .entryId("test-entry-sample-tube")
+            .coordinate("com.ecat:integration-saimosen")
+            .uniqueId("saimosen_sample.tube_SNST-001")
+            .title("采样管加热器")
+            .data(config)
+            .build();
     }
 
     @Test
     public void testConstructor() {
         assertNotNull(sampleTube);
-        assertEquals("sample-tube-001", sampleTube.getId());
         assertEquals("采样管加热器", sampleTube.getName());
         assertEquals("ST-001", sampleTube.getSn());
         assertEquals("赛默森环保", sampleTube.getVendor());
@@ -119,9 +133,9 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        
+
         sampleTube.load(mockCore);
-        
+
         // 验证设备已加载
         assertNotNull(sampleTube.getCore());
     }
@@ -133,14 +147,14 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 验证设备已初始化
         assertNotNull(sampleTube.getAttrs());
         assertTrue(sampleTube.getAttrs().size() > 0);
-        
+
         // 验证关键属性已创建（根据新协议）
         assertTrue(sampleTube.getAttrs().containsKey("humidity"));
         assertTrue(sampleTube.getAttrs().containsKey("sample_gas_temperature"));
@@ -160,14 +174,14 @@ public class SampleTubeTest {
         when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
                 .thenReturn(mock(java.util.concurrent.ScheduledFuture.class));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 测试启动
         sampleTube.start();
         verify(mockExecutor, times(1)).scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
-        
+
         // 测试停止
         sampleTube.stop();
         // 注意：这里无法直接验证cancel调用，因为ScheduledFuture是mock的
@@ -180,7 +194,7 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         // 模拟读取响应（根据新协议，共11个寄存器）
         short[] mockData = new short[11];
         mockData[0] = 350;  // 样气湿度 35.0%
@@ -194,7 +208,7 @@ public class SampleTubeTest {
         mockData[8] = 100;  // 加热带功率 10.0W
         mockData[9] = 0;    // 未使用
         mockData[10] = 450; // 加热管设置温度 45.0°C
-        
+
         when(mockReadResponse.getShortData()).thenReturn(mockData);
         when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockReadResponse));
@@ -203,25 +217,25 @@ public class SampleTubeTest {
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(), any());
         when(mockCore.getBusRegistry()).thenReturn(mockBusRegistry);
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 执行读取操作（通过反射调用私有方法）
         try {
             java.lang.reflect.Method readMethod = SampleTube.class.getDeclaredMethod("readRegisters");
             readMethod.setAccessible(true);
             readMethod.invoke(sampleTube);
-            
+
             // 等待异步操作完成
             Thread.sleep(100);
-            
+
             // 验证读取调用（读取11个寄存器）
             verify(mockModbusSource, times(1)).readHoldingRegisters(0, 11);
-            
+
         } catch (Exception e) {
             fail("反射调用失败: " + e.getMessage());
         }
@@ -236,23 +250,23 @@ public class SampleTubeTest {
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 验证属性已创建
         assertNotNull("heating_tube_target_temp属性应该存在", sampleTube.getAttrs().get("heating_tube_target_temp"));
-        
+
         // 测试设置加热管目标温度
         float targetTemp = 45.5f;
         sampleTube.setHeatingTubeTargetTemp(targetTemp);
-        
+
         // 等待异步操作完成
         Thread.sleep(100);
-        
+
         // 验证写入调用（45.5 * 10 = 455，写入地址10）
         verify(mockModbusSource, times(1)).writeRegister(10, 455);
     }
@@ -266,20 +280,20 @@ public class SampleTubeTest {
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 测试设置加热管实际温度
         float actualTemp = 40.0f;
         sampleTube.setHeatingTubeActualTemp(actualTemp);
-        
+
         // 等待异步操作完成
         Thread.sleep(100);
-        
+
         // 验证写入调用（40.0 * 10 = 400，写入地址6）
         verify(mockModbusSource, times(1)).writeRegister(6, 400);
     }
@@ -293,18 +307,18 @@ public class SampleTubeTest {
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 测试设置设备地址
         sampleTube.setDeviceAddress(5);
         Thread.sleep(100);
         verify(mockModbusSource, times(1)).writeRegister(4, 5);
-        
+
         // 测试设置无效地址（超出范围）
         sampleTube.setDeviceAddress(256);
         Thread.sleep(100);
@@ -321,19 +335,19 @@ public class SampleTubeTest {
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 测试设置校准状态
         sampleTube.setCalibrationStatus(0);
-        
+
         // 等待异步操作完成
         Thread.sleep(100);
-        
+
         // 验证写入调用（写入地址2，值为0）
         verify(mockModbusSource, times(1)).writeRegister(2, 0);
     }
@@ -350,16 +364,16 @@ public class SampleTubeTest {
                 .thenReturn(mock(java.util.concurrent.ScheduledFuture.class));
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         sampleTube.start();
         sampleTube.release();
-        
+
         // 验证资源释放
         verify(mockModbusSource, times(1)).closeModbus();
     }
@@ -371,16 +385,16 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 验证所有必要的属性都已创建（根据新协议）
         Map<String, com.ecat.core.State.AttributeBase<?>> attrs = sampleTube.getAttrs();
-        
+
         assertTrue("样气湿度属性应该存在", attrs.containsKey("humidity"));
         assertTrue("样气温度属性应该存在", attrs.containsKey("sample_gas_temperature"));
         assertTrue("校准状态属性应该存在", attrs.containsKey("calibration_status"));
@@ -392,7 +406,7 @@ public class SampleTubeTest {
         assertTrue("加热带功率属性应该存在", attrs.containsKey("heating_belt_power"));
         assertTrue("未使用字段9应该存在", attrs.containsKey("reserved_9"));
         assertTrue("加热管设置温度属性应该存在", attrs.containsKey("heating_tube_target_temp"));
-        
+
         // 验证属性总数（11个寄存器对应11个属性）
         assertEquals("应该有11个属性", 11, attrs.size());
     }
@@ -403,32 +417,32 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
-        
+
         // 模拟读取失败
         when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.supplyAsync(() -> {
                     throw new RuntimeException("通信失败");
                 }));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        
+
         sampleTube.load(mockCore);
         sampleTube.init();
-        
+
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
-        
+
         // 执行读取操作（通过反射调用私有方法）
         try {
             java.lang.reflect.Method readMethod = SampleTube.class.getDeclaredMethod("readRegisters");
             readMethod.setAccessible(true);
             readMethod.invoke(sampleTube);
-            
+
             // 等待异步操作完成
             Thread.sleep(100);
-            
+
             // 验证错误处理
             // 注意：由于异步执行，这里主要验证方法调用不会抛出异常
-            
+
         } catch (Exception e) {
             fail("错误处理测试失败: " + e.getMessage());
         }
@@ -498,4 +512,4 @@ public class SampleTubeTest {
             ResourceLoader.setLoadI18nResources(true);
         }
     }
-} 
+}

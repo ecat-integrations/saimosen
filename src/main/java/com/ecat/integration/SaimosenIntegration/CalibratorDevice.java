@@ -8,6 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
@@ -44,8 +45,8 @@ public class CalibratorDevice extends SmsDeviceBase {
     private boolean isDebug = false; // 是否开启调试模式（用于测试控制）
     private int testCount = 0;
 
-    public CalibratorDevice(Map<String, Object> config) {
-        super(config);
+    public CalibratorDevice(ConfigEntry entry) {
+        super(entry);
     }
 
     @Override

@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.LiterFlowUnit;
@@ -48,8 +49,8 @@ public class SampleTube extends SmsDeviceBase {
     // 读取任务
     private ScheduledFuture<?> readFuture;
 
-    public SampleTube(Map<String, Object> config) {
-        super(config);
+    public SampleTube(ConfigEntry entry) {
+        super(entry);
     }
 
     /**

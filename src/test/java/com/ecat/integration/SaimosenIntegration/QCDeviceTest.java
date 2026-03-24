@@ -1,6 +1,7 @@
 // Copyright (c) ecat
 package com.ecat.integration.SaimosenIntegration;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.I18n.ResourceLoader;
@@ -58,11 +59,8 @@ public class QCDeviceTest {
     public void setUp() throws Exception {
         mockitoCloseable = MockitoAnnotations.openMocks(this);
 
-        Map<String, Object> config = new HashMap<>();
-        Map<String, Object> deviceSettings = new HashMap<>();
-        deviceSettings.put("sampling_tube_length", 4.5);
-        config.put("device_settings", deviceSettings);
-        device = new QCDevice(config);
+        ConfigEntry entry = createTestEntry();
+        device = new QCDevice(entry);
 
         setPrivateField(device, "core", mockEcatCore);
         setPrivateField(device, "modbusSource", mockModbusSource);
@@ -85,6 +83,38 @@ public class QCDeviceTest {
     @After
     public void tearDown() throws Exception {
         mockitoCloseable.close();
+    }
+
+    private ConfigEntry createTestEntry() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("class", "air.monitor.qc");
+        config.put("modbus_protocol", "RTU");
+
+        // QCDevice 特有的 device_settings
+        Map<String, Object> deviceSettings = new HashMap<>();
+        deviceSettings.put("sampling_tube_length", 4.5);
+        config.put("device_settings", deviceSettings);
+
+        Map<String, Object> serialSettings = new HashMap<>();
+        serialSettings.put("serial_port", "COM1");
+        serialSettings.put("baudrate", "9600");
+        serialSettings.put("data_bits", "8");
+        serialSettings.put("stop_bits", "1");
+        serialSettings.put("parity", "None");
+        serialSettings.put("timeout", 2000);
+
+        Map<String, Object> commSettings = new HashMap<>();
+        commSettings.put("serial_settings", serialSettings);
+        commSettings.put("slave_id", 1);
+        config.put("comm_settings", commSettings);
+
+        return new ConfigEntry.Builder()
+            .entryId("test-entry-qc-device")
+            .coordinate("com.ecat:integration-saimosen")
+            .uniqueId("saimosen_air.monitor.qc")
+            .title("质控设备")
+            .data(config)
+            .build();
     }
 
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {

@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.CurrentUnit;
@@ -38,8 +39,8 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
 
 
 
-    public SmartPowerStabilizer(Map<String, Object> config) {
-        super(config);
+    public SmartPowerStabilizer(ConfigEntry entry) {
+        super(entry);
     }
 
     /**

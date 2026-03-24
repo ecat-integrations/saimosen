@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceStatus;
 import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeClass;
@@ -60,8 +61,8 @@ public class NO2Device extends SmsDeviceBase {
     // 写入保护时间窗口（毫秒），在此时间内使用写入的值而不是读取的值
     private static final long CALIBRATION_WRITE_PROTECTION_MS = 2000; // 2秒保护期
 
-    public NO2Device(Map<String, Object> config) {
-        super(config);
+    public NO2Device(ConfigEntry entry) {
+        super(entry);
     }
 
     @Override

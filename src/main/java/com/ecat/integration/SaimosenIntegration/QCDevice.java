@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
@@ -69,11 +70,11 @@ public class QCDevice extends SmsDeviceBase {
     private boolean isDebug = false; // 是否开启调试模式
     private int testCount = 0;
 
-    public QCDevice(Map<String, Object> config) {
-        super(config);
+    public QCDevice(ConfigEntry entry) {
+        super(entry);
 
         this.configDefinition = getConfigDefinition();
-        this.deviceConfig = parseConfig(config);
+        this.deviceConfig = parseConfig(entry.getData());
 
         initAttributeMap();
     }

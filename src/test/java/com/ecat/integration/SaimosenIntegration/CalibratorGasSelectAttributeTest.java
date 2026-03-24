@@ -1,5 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -125,20 +126,31 @@ public class CalibratorGasSelectAttributeTest {
                   displayName.contains("gas") || displayName.contains("select"));
 
         // 创建校准器设备并绑定属性
-        java.util.Map<String, Object> config = new java.util.HashMap<>();
-        config.put("id", "test-calibrator");
-        config.put("name", "Test Calibrator");
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("class", "air.monitor.calibrator");
+        data.put("modbus_protocol", "RTU");
+
+        java.util.Map<String, Object> serialSettings = new java.util.HashMap<>();
+        serialSettings.put("serial_port", "COM1");
+        serialSettings.put("baudrate", "9600");
+        serialSettings.put("data_bits", "8");
+        serialSettings.put("stop_bits", "1");
+        serialSettings.put("parity", "None");
 
         java.util.Map<String, Object> commSettings = new java.util.HashMap<>();
-        commSettings.put("port", "COM1");
-        commSettings.put("baudRate", 9600);
-        commSettings.put("numDataBit", 8);
-        commSettings.put("numStopBit", 1);
-        commSettings.put("parity", "N");
-        commSettings.put("slaveId", 1);
-        config.put("comm_settings", commSettings);
+        commSettings.put("serial_settings", serialSettings);
+        commSettings.put("slave_id", 1);
+        data.put("comm_settings", commSettings);
 
-        CalibratorDevice device = new CalibratorDevice(config);
+        ConfigEntry entry = new ConfigEntry.Builder()
+            .entryId("test-calibrator")
+            .coordinate("com.ecat:integration-saimosen")
+            .uniqueId("saimosen_air.monitor.calibrator")
+            .title("Test Calibrator")
+            .data(data)
+            .build();
+
+        CalibratorDevice device = new CalibratorDevice(entry);
         device.setModbusSource(mockModbusSource);
         device.init();
 

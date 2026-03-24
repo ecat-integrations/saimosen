@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 
@@ -27,8 +28,8 @@ public class ParticulateZeroChecker extends SmsDeviceBase {
 
 
 
-    public ParticulateZeroChecker(Map<String, Object> config) {
-        super(config);
+    public ParticulateZeroChecker(ConfigEntry entry) {
+        super(entry);
     }
 
     @Override
