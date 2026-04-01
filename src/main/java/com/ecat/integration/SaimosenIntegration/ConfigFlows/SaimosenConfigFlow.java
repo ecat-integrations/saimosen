@@ -30,6 +30,7 @@ import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusCommTypeSchema;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusRtuCommConfigSchema;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusTcpCommConfigSchema;
+import com.ecat.integration.SaimosenIntegration.SaimosenIntegration;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
