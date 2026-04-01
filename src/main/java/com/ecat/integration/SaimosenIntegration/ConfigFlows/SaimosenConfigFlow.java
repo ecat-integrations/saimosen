@@ -102,6 +102,12 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         }
         context.getEntryData().putAll(userInput);
         context.getEntryData().put("vendor", VENDOR);
+        // 根据设备类型自动设置硬件型号
+        String deviceClass = (String) userInput.get("class");
+        String model = SaimosenIntegration.classToModel(deviceClass);
+        if (model != null) {
+            context.getEntryData().put("model", model);
+        }
         // 质控仪需要额外配置采样管长度
         if (QC_CLASS.equals(userInput.get("class"))) {
             return showForm("qc_config", createQcConfigSchema(), new HashMap<>());

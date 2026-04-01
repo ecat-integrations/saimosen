@@ -50,6 +50,7 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         }
 
         String deviceClass = (String) entry.getData().get("class");
+
         SmsDeviceBase device;
 
         try {
@@ -94,5 +95,29 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         device.load(core);
         device.init();
         return device;
+    }
+
+    /**
+     * 根据设备类型 class 推导硬件型号。
+     * <p>
+     * ConfigFlow 和集成层共享此方法，统一维护 class→model 映射。
+     *
+     * @param deviceClass 设备类型标识（如 "air.monitor.so2"）
+     * @return 硬件型号（如 "SMS8200"），未知类型返回 null
+     */
+    public static String classToModel(String deviceClass) {
+        if (deviceClass == null) return null;
+        switch (deviceClass) {
+            case "air.monitor.so2": return "SMS8200";
+            case "air.monitor.co": return "SMS8500";
+            case "air.monitor.no2": return "SMS8300";
+            case "air.monitor.o3": return "SMS8400";
+            case "air.monitor.qc": return "SMS8910";
+            case "air.monitor.pm.qc": return "SMS8220";
+            case "air.monitor.calibrator": return "SMS8600";
+            case "power.supply.stabilizer": return "IRP0501B";
+            case "sample.tube": return "SMS6930";
+            default: return null;
+        }
     }
 }
