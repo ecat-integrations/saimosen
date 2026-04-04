@@ -55,12 +55,14 @@ public class CODevice extends SmsDeviceBase {
 
     @Override
     public void start() {
-        getScheduledExecutor().scheduleWithFixedDelay(this::readAndUpdate, 0, 5, TimeUnit.SECONDS);
+        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readAndUpdate, 0, 5, TimeUnit.SECONDS);
     }
 
     @Override
     public void stop() {
-        // 停止逻辑
+        if (readFuture != null) {
+            readFuture.cancel(true);
+        }
     }
 
     @Override
