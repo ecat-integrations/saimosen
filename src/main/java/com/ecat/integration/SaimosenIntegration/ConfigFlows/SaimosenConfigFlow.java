@@ -128,7 +128,13 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         if (!errors.isEmpty()) {
             return showForm("qc_config", schema, errors);
         }
-        context.getEntryData().putAll(userInput);
+        // 将采样管长度嵌套到 device_settings map 中，避免污染 entryData 顶层
+        Map<String, Object> deviceSettings = new HashMap<>();
+        Object tubeLengthObj = userInput.get("sampling_tube_length");
+        if (tubeLengthObj != null) {
+            deviceSettings.put("sampling_tube_length", Double.parseDouble(tubeLengthObj.toString()));
+        }
+        context.getEntryData().put("device_settings", deviceSettings);
         return showForm("protocol_select", new ModbusCommTypeSchema().createSchema(), new HashMap<>());
     }
 

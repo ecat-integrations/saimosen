@@ -11,6 +11,7 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.LiterFlowUnit;
 import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.core.State.Unit.PowerUnit;
+import com.ecat.core.State.Unit.RatioUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
@@ -93,8 +94,8 @@ public class SampleTube extends SmsDeviceBase {
         setAttribute(new ModbusScalableFloatSRAttribute(
                 "humidity",
                 AttributeClass.HUMIDITY,
-                NoConversionUnit.of("%", "%"),
-                NoConversionUnit.of("%", "%"),
+                RatioUnit.PERCENT,
+                RatioUnit.PERCENT,
                 1,
                 false,
                 false,

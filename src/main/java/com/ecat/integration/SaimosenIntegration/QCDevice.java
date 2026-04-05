@@ -23,6 +23,7 @@ import com.ecat.core.State.Unit.LiterFlowUnit;
 import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.core.State.Unit.PowerUnit;
 import com.ecat.core.State.Unit.PressureUnit;
+import com.ecat.core.State.Unit.RatioUnit;
 import com.ecat.core.State.Unit.SpeedUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.core.State.Unit.VoltageUnit;
@@ -127,7 +128,7 @@ public class QCDevice extends SmsDeviceBase {
         
         // 站房湿度 - 地址3/4，只读
         attributeMap.put(3, new AttributeInfo("bench_humidity", AttributeClass.HUMIDITY, "站房湿度",
-                ModbusDataType.FLOAT, 2, null, false));
+                ModbusDataType.FLOAT, 2, RatioUnit.PERCENT, false));
         
         // 采样管温度 - 地址5/6，只读
         attributeMap.put(5, new AttributeInfo("sample_tube_temp", AttributeClass.TEMPERATURE, "采样管温度",
@@ -135,7 +136,7 @@ public class QCDevice extends SmsDeviceBase {
         
         // 采样管湿度 - 地址7/8，只读
         attributeMap.put(7, new AttributeInfo("sample_tube_humidity", AttributeClass.HUMIDITY, "采样管湿度",
-                ModbusDataType.FLOAT, 2, null, false));
+                ModbusDataType.FLOAT, 2, RatioUnit.PERCENT, false));
         
         // 采样管流速 - 地址9/10，只读
         attributeMap.put(9, new AttributeInfo("sample_tube_flow", AttributeClass.FLOW, "采样管流速",

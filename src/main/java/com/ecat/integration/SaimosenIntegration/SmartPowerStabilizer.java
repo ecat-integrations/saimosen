@@ -11,6 +11,7 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.CurrentUnit;
 import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.core.State.Unit.PowerUnit;
+import com.ecat.core.State.Unit.RatioUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.core.State.Unit.VoltageUnit;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
@@ -147,8 +148,8 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
         setAttribute(new ModbusScalableFloatSRAttribute(
                 "humidity",
                 AttributeClass.HUMIDITY,
-                NoConversionUnit.of("%", "%"),
-                NoConversionUnit.of("%", "%"),
+                RatioUnit.PERCENT,
+                RatioUnit.PERCENT,
                 2,
                 false,
                 false,
