@@ -35,6 +35,7 @@ import com.ecat.integration.SaimosenIntegration.SaimosenIntegration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Saimosen 设备配置流程
@@ -299,15 +300,16 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     /**
      * 生成唯一标识符
      * <p>
-     * 格式：saimosen_{class}[_SN{sn}]
+     * 格式：saimosen_{class}_{sn}
      * 例如：saimosen_air.monitor.co_SN001
+     * 当 sn 为空时，使用随机 8 位 hex 字符串作为 sn，确保唯一性
      */
     private String generateUniqueId() {
         String deviceClass = (String) context.getEntryData().getOrDefault("class", "");
         String sn = (String) context.getEntryData().getOrDefault("sn", "");
         if (sn == null || sn.isEmpty()) {
-            return "saimosen_" + deviceClass;
+            sn = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         }
-        return "saimosen_" + deviceClass + "_SN" + sn;
+        return VENDOR + "_" + deviceClass + "_" + sn;
     }
 }

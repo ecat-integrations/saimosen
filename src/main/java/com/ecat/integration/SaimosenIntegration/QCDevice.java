@@ -262,15 +262,15 @@ public class QCDevice extends SmsDeviceBase {
         attributeMap.put(58, new AttributeInfo("ac2_cur_temp", AttributeClass.TEMPERATURE, "空调2当前温度",
                 ModbusDataType.U16, 1, TemperatureUnit.CELSIUS, false));
         
-        // 钢瓶气1压力 - 地址60/61，只读 CO气罐
+        // 钢瓶气1压力 - 地址60/61，只读 SO2气罐
         attributeMap.put(60, new AttributeInfo("gas_cylinder1_pressure", AttributeClass.PRESSURE, "钢瓶气1压力",
                 ModbusDataType.FLOAT, 2, PressureUnit.KPA, false));
         
-        // 钢瓶气2压力 - 地址62/63，只读 SO2气罐
+        // 钢瓶气2压力 - 地址62/63，只读 NOx气罐
         attributeMap.put(62, new AttributeInfo("gas_cylinder2_pressure", AttributeClass.PRESSURE, "钢瓶气2压力",
                 ModbusDataType.FLOAT, 2, PressureUnit.KPA, false));
         
-        // 钢瓶气3压力 - 地址64/65，只读 NOx气罐
+        // 钢瓶气3压力 - 地址64/65，只读 CO气罐
         attributeMap.put(64, new AttributeInfo("gas_cylinder3_pressure", AttributeClass.PRESSURE, "钢瓶气3压力",
                 ModbusDataType.FLOAT, 2, PressureUnit.KPA, false));
         
