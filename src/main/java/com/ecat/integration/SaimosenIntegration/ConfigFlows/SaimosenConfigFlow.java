@@ -258,7 +258,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
             .addField(new TextConfigItem("qc_config_label", false,
                 "质控仪需要配置采样管长度，请填写实际使用的采样管长度。")
                 .displayName("质控仪配置说明"))
-            .addField(new TextConfigItem("sampling_tube_length", false)
+            .addField(new TextConfigItem("sampling_tube_length", true)
                 .displayName("采样管长度(m)"));
     }
 
