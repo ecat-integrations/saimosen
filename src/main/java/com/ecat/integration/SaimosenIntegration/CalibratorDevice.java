@@ -13,6 +13,7 @@ import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.TextAttribute;
+import com.ecat.core.State.Unit.LiterFlowUnit;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
 import com.ecat.integration.ModbusIntegration.Tools;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
@@ -131,6 +132,42 @@ public class CalibratorDevice extends SmsDeviceBase {
                 (short) 0x06,
                 bigConverter));
 
+        // MFC1校准目标流量1  2026-04-11 因出现恒值 暂时停掉
+//        setAttribute(new ModbusFloatAttribute("mfc1_gflow1_target", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x14, bigConverter));
+//        // MFC1校准目标流量2
+//        setAttribute(new ModbusFloatAttribute("mfc1_gflow2_target", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x16, bigConverter));
+//        // MFC1校准实际流量1
+//        setAttribute(new ModbusFloatAttribute("mfc1_gflow1_actual", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x18, bigConverter));
+//        // MFC1校准实际流量2
+//        setAttribute(new ModbusFloatAttribute("mfc1_gflow2_actual", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x20, bigConverter));
+//        // MFC2校准目标流量1
+//        setAttribute(new ModbusFloatAttribute("mfc2_gflow1_target", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x22, bigConverter));
+//        // MFC2校准目标流量2
+//        setAttribute(new ModbusFloatAttribute("mfc2_gflow2_target", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x24, bigConverter));
+//        // MFC2校准实际流量1
+//        setAttribute(new ModbusFloatAttribute("mfc2_gflow1_actual", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x26, bigConverter));
+//        // MFC2校准实际流量2
+//        setAttribute(new ModbusFloatAttribute("mfc2_gflow2_actual", AttributeClass.FLOW,
+//                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
+//                1, true, false, modbusSource, (short) 0x28, bigConverter));
+
+
+
+
         // 生成样气种类（写属性，short类型）
         setAttribute(new CalibratorGasSelectAttribute(
                 "calibrator_gas_select",
@@ -172,7 +209,8 @@ public class CalibratorDevice extends SmsDeviceBase {
                 modbusSource,
                 (short) 0x49,
                 bigConverter));
-        
+
+
         // GPTNO气体浓度（ppm）
         setAttribute(new ModbusFloatAttribute(
                 "gptno_concentration",
@@ -265,6 +303,23 @@ public class CalibratorDevice extends SmsDeviceBase {
         // CO标气浓度（0x06-0x07）
         float co = Tools.convertBigEndianToFloat(registers[6], registers[7]);
         updateModbusFloatAttribute("co_std_gas_concentration", co, status);
+
+//        float mfc1_gflow1_target = Tools.convertBigEndianToFloat(registers[14], registers[15]);
+//        updateModbusFloatAttribute("mfc1_gflow1_target", mfc1_gflow1_target, status);
+//        float mfc1_gflow2_target = Tools.convertBigEndianToFloat(registers[16], registers[17]);
+//        updateModbusFloatAttribute("mfc1_gflow2_target", mfc1_gflow2_target, status);
+//        float mfc1_gflow1_actual = Tools.convertBigEndianToFloat(registers[18], registers[19]);
+//        updateModbusFloatAttribute("mfc1_gflow1_actual", mfc1_gflow1_actual, status);
+//        float mfc1_gflow2_actual = Tools.convertBigEndianToFloat(registers[20], registers[21]);
+//        updateModbusFloatAttribute("mfc1_gflow2_actual", mfc1_gflow2_actual, status);
+//        float mfc2_gflow1_target = Tools.convertBigEndianToFloat(registers[22], registers[23]);
+//        updateModbusFloatAttribute("mfc2_gflow1_target", mfc2_gflow1_target, status);
+//        float mfc2_gflow2_target = Tools.convertBigEndianToFloat(registers[24], registers[25]);
+//        updateModbusFloatAttribute("mfc2_gflow2_target", mfc2_gflow2_target, status);
+//        float mfc2_gflow1_actual = Tools.convertBigEndianToFloat(registers[26], registers[27]);
+//        updateModbusFloatAttribute("mfc2_gflow1_actual", mfc2_gflow1_actual, status);
+//        float mfc2_gflow2_actual = Tools.convertBigEndianToFloat(registers[28], registers[29]);
+//        updateModbusFloatAttribute("mfc2_gflow2_actual", mfc2_gflow2_actual, status);
 
         float gptno = Tools.convertBigEndianToFloat(registers[30], registers[31]);
         updateModbusFloatAttribute("gptno_concentration", gptno, status);
