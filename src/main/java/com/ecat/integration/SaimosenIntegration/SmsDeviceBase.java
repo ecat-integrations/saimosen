@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
+import com.ecat.core.Device.DeviceStatus;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.ModbusIntegration.ModbusInfo;
 import com.ecat.integration.ModbusIntegration.ModbusProtocol;
@@ -188,6 +189,14 @@ public abstract class SmsDeviceBase extends DeviceBase {
             modbusSource.closeModbus();
             log.info("Modbus closed for device " + getId() + ": " + modbusSource.getModbusInfo());
         }
+    }
+
+    /**
+     * 此集成自行管理 deviceStatus 字段，跳过基类计算逻辑。
+     */
+    @Override
+    public DeviceStatus getDeviceStatus() {
+        return this.deviceStatus;
     }
 
     /**
