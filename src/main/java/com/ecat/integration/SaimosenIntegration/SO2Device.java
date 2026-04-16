@@ -251,7 +251,7 @@ public class SO2Device extends SmsDeviceBase {
         setAttribute(new NumericAttribute(
                 "calibration_concentration",
                 AttributeClass.SO2, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
-                1, false, false));
+                1, true, true));
         setAttribute(new NumericAttribute(
                 "calibration_status",
                 AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),

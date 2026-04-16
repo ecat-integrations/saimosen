@@ -264,7 +264,7 @@ public class GasDeviceCommandAttribute extends StringCommandAttribute {
         for (AttributeBase<?> attr : dependencyAttributes) {
             if (attr instanceof NumericAttribute) {
                 NumericAttribute numAttr = (NumericAttribute) attr;
-                if ("CALIBRATION_CONCENTRATION".equals(numAttr.getAttributeID())) {
+                if ("calibration_concentration".equals(numAttr.getAttributeID())) {
                     return numAttr.getValue();
                 }
             }
