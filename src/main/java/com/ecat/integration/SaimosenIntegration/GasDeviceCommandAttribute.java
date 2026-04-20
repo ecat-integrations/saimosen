@@ -11,7 +11,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * 通用气体设备命令属性，支持灵活配置命令模板和返回判断规则。
- * 支持通过设备属性（如CALIBRATION_CONCENTRATION）动态拼接命令参数。
+ * 支持通过设备属性（calibration_concentration）动态拼接命令参数。
  * 命令下发采用事务策略，确保原子性。
  * 使用工厂模式 + 策略模式支持不同气体类型的校准配置。
  */
