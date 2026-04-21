@@ -223,13 +223,13 @@
       "calibrator_gas_select": "校准器气体选择",
       "calibrator_gas_select_options": {
         "choose": "选择",
-        "SO2": "二氧化硫",
+        "so2": "二氧化硫",
         "no": "一氧化氮",
         "co": "一氧化碳",
-        "M_GPTNO": "零气",
-        "M_GPTNO_O3": "臭氧零气",
-        "O3": "臭氧",
-        "M_GPT": "标气"
+        "m_gptno": "NO",
+        "m_gptno_o3": "NO滴定",
+        "o3": "臭氧",
+        "m_gpt": "GPT预制"
       },
       "system_state": "系统状态",
       "other_gas_concentration": "校准仪生成气体浓度",
