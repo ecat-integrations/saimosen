@@ -5,3 +5,6 @@ dependencies: # 依赖的其他ecat集成的信息。可选项，默认无
   - artifactId: integration-modbus
     groupId: com.ecat
     version: ^1.1.1
+  - artifactId: integration-serial
+    groupId: com.ecat
+    version: ^1.1.1

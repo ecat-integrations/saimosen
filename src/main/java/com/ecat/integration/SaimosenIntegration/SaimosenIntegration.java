@@ -127,7 +127,7 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                         .add(new ConfigItem<>("numStopBit", Integer.class, true, null))
                         .add(new ConfigItem<>("parity", String.class, true, null, Collections.singletonList(lengthValidator)))
                         .add(new ConfigItem<>("timeout", Integer.class, false, 1000))
-                        .add(new ConfigItem<>("slaveId", Integer.class, true, null))
+                        .add(new ConfigItem<>("slaveId", Integer.class, false, null))
                     ));
 
             deviceConfigDefinition.define(builder);
@@ -141,11 +141,21 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         if (isValid) {
             try {
                 String deviceClass = (String) config.get("class");
-                SmsDeviceBase device;
+                String model = (String) config.get("model");
+                SmsDeviceBase device = null;
                 DeviceClasses dc = DeviceClasses.getEnum(deviceClass);
                 switch(dc){
-                    case AIR_MONITOR_CALIBRATOR: 
-                        device = new CalibratorDevice(config);
+                    case AIR_MONITOR_CALIBRATOR:
+                        if(model.equals("SMS8600")){
+                            device = new CalibratorDevice(config);
+                        }else if(model.equals("SMS8600V2")){
+                            SerialDeviceBase sms8600v2device = new SMS8600V2Device(config);
+                            sms8600v2device.load(core);
+                            sms8600v2device.init();
+                            addDevice(sms8600v2device);
+                        }else{
+                            device = new CalibratorDevice(config);
+                        }
                         break;
                     case AIR_MONITOR_QC:
                         device = new QCDevice(config);
@@ -174,10 +184,11 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                     default:
                         return false;
                 }
-
-                device.load(core);
-                device.init();
-                addDevice(device);
+                if(device != null){
+                    device.load(core);
+                    device.init();
+                    addDevice(device);
+                }
                 return true;
             } catch (Exception e) {
                 log.error("Create device failed", e);
