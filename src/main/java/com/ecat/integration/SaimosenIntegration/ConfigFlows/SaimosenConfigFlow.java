@@ -31,6 +31,7 @@ import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusCommTypeSchema
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusRtuCommConfigSchema;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusTcpCommConfigSchema;
 import com.ecat.integration.SaimosenIntegration.SaimosenIntegration;
+import com.ecat.integration.SerialIntegration.ConfigSchemas.SerialCommConfigSchema;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -69,6 +70,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         registerStepReconfigure("reconfigure", "重新配置 Saimosen 设备", this::stepReconfigure);
 
         registerStep("device_config", this::stepDeviceConfig, "设备配置");
+        registerStep("device_mode_config", this::stepDeviceModeConfig, "设备型号选择");
         registerStep("qc_config", this::stepQcConfig, "质控仪配置");
         registerStep("protocol_select", this::stepProtocolSelect, "协议选择");
         registerStep("comm_config", this::stepCommConfig, "通讯配置");
@@ -106,17 +108,47 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         context.getEntryData().put("vendor", VENDOR);
         // 根据设备类型自动设置硬件型号
         String deviceClass = (String) userInput.get("class");
-        String model = SaimosenIntegration.classToModel(deviceClass);
-        if (model != null) {
-            context.getEntryData().put("model", model);
-        }
+//        String model = SaimosenIntegration.classToModel(deviceClass);
+//        if (model != null) {
+//            context.getEntryData().put("model", model);
+//        }
         // 质控仪需要额外配置采样管长度
-        if (QC_CLASS.equals(userInput.get("class"))) {
-            return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
-        }
-        return showForm("protocol_select", new ModbusCommTypeSchema().createSchema(), new HashMap<>());
+//        if (QC_CLASS.equals(userInput.get("class"))) {
+//            return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
+//        }
+//        return showForm("protocol_select", new ModbusCommTypeSchema().createSchema(), new HashMap<>());
+        return showForm("device_mode_config", createDeviceModeBasicSchema(deviceClass), new HashMap<>());
     }
 
+    /**
+     * 设备型号选择步骤 - 选择设备型号（根据设备类型）
+     */
+    private ConfigFlowResult stepDeviceModeConfig(Map<String, Object> userInput) {
+        Map<String, Object> deviceClassData = getStepData("device_config");
+        String deviceClass = (String) deviceClassData.get("class");
+        if (userInput == null || userInput.isEmpty()) {
+            return showForm("device_mode_config", createDeviceModeBasicSchema(deviceClass), new HashMap<>());
+        }
+//        ConfigSchema schema = createDeviceModeBasicSchema(deviceClassData);
+//        Map<String, Object> errors = schema.validate(userInput);
+//        if (!errors.isEmpty()) {
+//            return showForm("device_mode_config", schema, errors);
+//        }
+//        context.getEntryData().putAll(userInput);
+        context.getEntryData().put("model", userInput.get("model"));
+        context.getEntryData().put("name", userInput.get("name"));
+        // 质控仪需要额外配置采样管长度
+        if (QC_CLASS.equals(deviceClass)) {
+            return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
+        }
+        ConfigSchema protocolSchema = null;
+        if (SaimosenIntegration.getProtocolByMode((String) userInput.get("model")).equals(SaimosenIntegration.Protocol.MODBUS.name())) {
+            protocolSchema = new ModbusCommTypeSchema().createSchema();
+        } else if (SaimosenIntegration.getProtocolByMode((String) userInput.get("model")).equals(SaimosenIntegration.Protocol.SERIAL.name())) {
+            protocolSchema = new SerialCommConfigSchema().createSchema();
+        }
+        return showForm("protocol_select", protocolSchema, new HashMap<>());
+    }
     /**
      * 质控仪专用配置步骤 - 采样管长度
      */
@@ -136,23 +168,50 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
             deviceSettings.put("sampling_tube_length", Double.parseDouble(tubeLengthObj.toString()));
         }
         context.getEntryData().put("device_settings", deviceSettings);
-        return showForm("protocol_select", new ModbusCommTypeSchema().createSchema(), new HashMap<>());
+        String model = (String) context.getEntryData().get("model");
+        ConfigSchema protocolSchema = null;
+        if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.MODBUS.name())) {
+            protocolSchema = new ModbusCommTypeSchema().createSchema();
+        } else if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.SERIAL.name())) {
+            protocolSchema = new SerialCommConfigSchema().createSchema();
+        }
+        return showForm("protocol_select", protocolSchema, new HashMap<>());
     }
 
     private ConfigFlowResult stepProtocolSelect(Map<String, Object> userInput) {
+        String model = (String) context.getEntryData().get("model");
+        ConfigSchema protocolSchema = null;
         if (userInput == null || userInput.isEmpty()) {
-            return showForm("protocol_select", new ModbusCommTypeSchema().createSchema(), new HashMap<>());
+            if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.MODBUS.name())) {
+                protocolSchema = new ModbusCommTypeSchema().createSchema();
+            } else if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.SERIAL.name())) {
+                protocolSchema = new SerialCommConfigSchema().createSchema();
+            }
+            return showForm("protocol_select", protocolSchema, new HashMap<>());
         }
-        ConfigSchema schema = new ModbusCommTypeSchema().createSchema();
-        Map<String, Object> errors = schema.validate(userInput);
-        if (!errors.isEmpty()) {
-            return showForm("protocol_select", schema, errors);
+        if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.MODBUS.name())) {
+            ConfigSchema schema = new ModbusCommTypeSchema().createSchema();
+            Map<String, Object> errors = schema.validate(userInput);
+            if (!errors.isEmpty()) {
+                return showForm("protocol_select", schema, errors);
+            }
+            // 保存选择的协议类型
+            context.getEntryData().putAll(userInput);
+            // 根据协议类型选择通讯配置 Schema
+            String protocol = (String) userInput.get("modbus_protocol");
+            return showForm("comm_config", createCommConfigSchema(protocol), new HashMap<>());
+        }else if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.SERIAL.name())) {
+            ConfigSchema schema = new SerialCommConfigSchema().createSchema();
+            Map<String, Object> errors = schema.validate(userInput);
+            if (!errors.isEmpty()) {
+                return showForm("comm_config", schema, errors);
+            }
+            context.getEntryData().put("comm_settings", userInput);
+            return showForm("final_confirm", createFinalConfirmSchema(), new HashMap<>());
+        }else{
+            return showForm("protocol_select", protocolSchema, new HashMap<>());
         }
-        // 保存选择的协议类型
-        context.getEntryData().putAll(userInput);
-        // 根据协议类型选择通讯配置 Schema
-        String protocol = (String) userInput.get("modbus_protocol");
-        return showForm("comm_config", createCommConfigSchema(protocol), new HashMap<>());
+
     }
 
     private ConfigFlowResult stepCommConfig(Map<String, Object> userInput) {
@@ -242,10 +301,6 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
                 .addOption("air.monitor.co", "CO 分析仪")
                 .addOption("air.monitor.so2", "SO2 分析仪")
                 .buildValidator())
-            .addField(new TextConfigItem("name", true)
-                .displayName("设备名称")
-                .length(1, 50)
-                .setDefaultValue("Saimosen设备"))
             .addField(new TextConfigItem("sn", false)
                 .displayName("序列号"));
     }
@@ -260,6 +315,50 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
                 .displayName("质控仪配置说明"))
             .addField(new TextConfigItem("sampling_tube_length", true)
                 .displayName("采样管长度(m)"));
+    }
+    // ========== 设备型号选择步骤 ==========
+    private ConfigSchema createDeviceModeBasicSchema(String deviceClass) {
+        String defaultName = "Saimosen设备";
+//         .addField(new EnumConfigItem("class", true, "air.monitor.calibrator")
+//                .displayName("设备类型")
+//                .addOption("air.monitor.calibrator", "校准器")
+//                .addOption("air.monitor.qc", "质控仪")
+//                .addOption("power.supply.stabilizer", "智能稳压电源")
+//                .addOption("sample.tube", "采样管")
+//                .addOption("air.monitor.pm.qc", "颗粒物零点校验仪")
+//                .addOption("air.monitor.o3", "O3 分析仪")
+//                .addOption("air.monitor.no2", "NO2 分析仪")
+//                .addOption("air.monitor.co", "CO 分析仪")
+//                .addOption("air.monitor.so2", "SO2 分析仪")
+        if(deviceClass.equals("air.monitor.qc")){
+            defaultName = "Saimosen质控仪";
+        } else if (deviceClass.equals("air.monitor.calibrator")) {
+            defaultName = "Saimosen动态气体校准仪";
+        } else if (deviceClass.equals("power.supply.stabilizer")) {
+            defaultName = "Saimosen智能稳压电源";
+        } else if (deviceClass.equals("sample.tube")) {
+            defaultName = "Saimosen智能采样管";
+        }else if (deviceClass.equals("air.monitor.pm.qc")) {
+            defaultName = "Saimosen颗粒物零点校验仪";
+        }else if (deviceClass.equals("air.monitor.o3")) {
+            defaultName = "Saimosen O3 分析仪";
+        }else if (deviceClass.equals("air.monitor.no2")) {
+            defaultName = "Saimosen NO2 分析仪";
+        }else if (deviceClass.equals("air.monitor.co")) {
+            defaultName = "Saimosen CO 分析仪";
+        }else if (deviceClass.equals("air.monitor.so2")) {
+            defaultName = "Saimosen SO2 分析仪";
+        }
+        return new ConfigSchema().addField(new EnumConfigItem("model", true)
+                .displayName("型号")
+                .addOptions(getDeviceModeOptions(deviceClass)))
+                .addField(new TextConfigItem("name", true)
+                        .displayName("设备名称")
+                        .length(1, 50)
+                        .setDefaultValue(defaultName));
+    }
+    private Map<String, String> getDeviceModeOptions(String classInfo) {
+        return SaimosenIntegration.classToModelMap(classInfo);
     }
 
     /**

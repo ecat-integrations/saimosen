@@ -146,7 +146,7 @@ public class SaimosenIntegrationTest {
 
     @Test
     public void testCreateDeviceFromEntry_Calibrator() {
-        ConfigEntry entry = createTestEntry("air.monitor.calibrator", "校准器", "RTU");
+        ConfigEntry entry = createTestEntry("air.monitor.calibrator", "校准器", "RTU", "SMS8600V1");
         setupMockCoreForDeviceCreation();
 
         com.ecat.core.Device.DeviceBase device = integration.createDeviceFromEntry(entry);
@@ -355,6 +355,62 @@ public class SaimosenIntegrationTest {
             .title(deviceName)
             .data(data)
             .build();
+    }
+
+    /**
+     * 创建测试用 ConfigEntry
+     *
+     * @param deviceClass 设备类型字符串，对应 DeviceClasses 枚举值
+     * @param deviceName  设备名称
+     * @param protocol    协议类型 "RTU" 或 "TCP"
+     */
+    private ConfigEntry createTestEntry(String deviceClass, String deviceName, String protocol, String model) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("class", deviceClass);
+        data.put("name", deviceName);
+        data.put("vendor", "saimosen");
+        data.put("sn", "001");
+        data.put("modbus_protocol", protocol);
+        data.put("model", model);
+
+        if ("TCP".equals(protocol)) {
+            // TCP comm_settings: ip_address, port, slave_id
+            Map<String, Object> tcpSettings = new HashMap<>();
+            tcpSettings.put("ip_address", "192.168.1.100");
+            tcpSettings.put("port", 502);
+
+            Map<String, Object> commSettings = new HashMap<>();
+            commSettings.put("ip_address", "192.168.1.100");
+            commSettings.put("port", 502);
+            commSettings.put("slave_id", 1);
+
+            data.put("comm_settings", commSettings);
+        } else {
+            // RTU comm_settings with nested serial_settings (field names match ModbusRtuCommConfigSchema)
+            Map<String, Object> serialSettings = new HashMap<>();
+            serialSettings.put("serial_port", "/dev/ttyUSB0");
+            serialSettings.put("baudrate", 9600);
+            serialSettings.put("data_bits", 8);
+            serialSettings.put("stop_bits", 1);
+            serialSettings.put("parity", "None");
+            serialSettings.put("timeout", 2000);
+
+            Map<String, Object> commSettings = new HashMap<>();
+            commSettings.put("serial_settings", serialSettings);
+            commSettings.put("slave_id", 1);
+
+            data.put("comm_settings", commSettings);
+        }
+
+        String uniqueId = "saimosen_" + deviceClass + "_SN001";
+
+        return new ConfigEntry.Builder()
+                .entryId("test-entry-" + deviceClass.replace(".", "-"))
+                .coordinate("integration-saimosen")
+                .uniqueId(uniqueId)
+                .title(deviceName)
+                .data(data)
+                .build();
     }
 
     /**

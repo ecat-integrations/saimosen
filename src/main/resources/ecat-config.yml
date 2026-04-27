@@ -5,3 +5,7 @@ dependencies:
   - artifactId: integration-modbus
     groupId: com.ecat
     version: ^2.0.0
+  - artifactId: integration-serial
+    groupId: com.ecat
+    version: ^2.0.0
+

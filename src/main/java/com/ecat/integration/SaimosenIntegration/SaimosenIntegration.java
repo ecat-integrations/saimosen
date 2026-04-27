@@ -1,6 +1,8 @@
 package com.ecat.integration.SaimosenIntegration;
 
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.ConfigFlow.AbstractConfigFlow;
 import com.ecat.core.ConfigFlow.ConfigSchema;
@@ -35,7 +37,68 @@ import com.ecat.integration.SaimosenIntegration.ConfigSchemas.SaimosenDeviceConf
  * @author coffee
  */
 public class SaimosenIntegration extends IntegrationDeviceBase {
-
+    // 定义class model映射关系protocol
+    private static final Map<String, Map<String, String>> CLASS_MODEL_MAP;
+    // model映射关系protocol
+    private static final Map<String, String> MODEL_PROTOCOL_MAP;
+    /**
+     * 协议枚举（提取所有协议类型，杜绝字符串写错）
+     */
+    public enum Protocol {
+        MODBUS,   // Modbus 协议
+        SERIAL    // 串口协议
+    }
+    static {
+        MODEL_PROTOCOL_MAP = new HashMap<>();
+        CLASS_MODEL_MAP = new HashMap<>();
+        // 二氧化硫监测仪
+        Map<String, String> so2Map = new HashMap<>();
+        so2Map.put("SMS8200", "SMS8200");
+        MODEL_PROTOCOL_MAP.put("SMS8200", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.so2", so2Map);
+        // 一氧化碳监测仪
+        Map<String, String> coMap = new HashMap<>();
+        coMap.put("SMS8500", "SMS8500");
+        MODEL_PROTOCOL_MAP.put("SMS8500", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.co", coMap);
+        // 二氧化氮监测仪
+        Map<String, String> no2Map = new HashMap<>();
+        no2Map.put("SMS8300", "SMS8300");
+        MODEL_PROTOCOL_MAP.put("SMS8300", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.no2", no2Map);
+        // 臭氧监测仪
+        Map<String, String> o3Map = new HashMap<>();
+        o3Map.put("SMS8400", "SMS8400");
+        MODEL_PROTOCOL_MAP.put("SMS8400", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.o3", o3Map);
+        // 空气质量监测仪
+        Map<String, String> qcMap = new HashMap<>();
+        qcMap.put("SMS8910", "SMS8910");
+        MODEL_PROTOCOL_MAP.put("SMS8910", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.qc", qcMap);
+        // PM监测仪
+        Map<String, String> pmQcMap = new HashMap<>();
+        pmQcMap.put("SMS8220", "SMS8220");
+        MODEL_PROTOCOL_MAP.put("SMS8220", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.pm.qc", pmQcMap);
+        // 校准仪（多型号示例）
+        Map<String, String> calibratorMap = new HashMap<>();
+        calibratorMap.put("SMS8600V1", "SMS8600V1");
+        MODEL_PROTOCOL_MAP.put("SMS8600V1", Protocol.MODBUS.name());
+        calibratorMap.put("SMS8600V2", "SMS8600V2");
+        MODEL_PROTOCOL_MAP.put("SMS8600V2", Protocol.SERIAL.name());
+        CLASS_MODEL_MAP.put("air.monitor.calibrator", calibratorMap);
+        // 稳压电源
+        Map<String, String> powerMap = new HashMap<>();
+        powerMap.put("IRP0501B", "IRP0501B");
+        MODEL_PROTOCOL_MAP.put("IRP0501B", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("power.supply.stabilizer", powerMap);
+        // 采样管
+        Map<String, String> sampleMap = new HashMap<>();
+        sampleMap.put("SMS6930", "SMS6930");
+        MODEL_PROTOCOL_MAP.put("SMS6930", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("sample.tube", sampleMap);
+    }
     @Override
     public AbstractConfigFlow getConfigFlow() {
         return new SaimosenConfigFlow();
@@ -51,13 +114,25 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
 
         String deviceClass = (String) entry.getData().get("class");
 
-        SmsDeviceBase device;
-
+        SmsDeviceBase device = null;
+        String model = (String) entry.getData().get("model");
         try {
             DeviceClasses dc = DeviceClasses.getEnum(deviceClass);
             switch (dc) {
                 case AIR_MONITOR_CALIBRATOR:
-                    device = new CalibratorDevice(entry);
+                    if(model.equals("SMS8600V1")){
+                        device = new CalibratorDevice(entry);
+                    }
+                    else if(model.equals("SMS8600V2")){
+                        SerialDeviceBase sms8600v2device = new SMS8600V2Device(entry);
+                        sms8600v2device.load(core);
+                        sms8600v2device.init();
+                        addDevice(sms8600v2device);
+                        return sms8600v2device;
+                    }else{
+                        device = new CalibratorDevice(entry);
+                    }
+
                     break;
                 case AIR_MONITOR_QC:
                     device = new QCDevice(entry);
@@ -91,9 +166,10 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
             log.error("Failed to parse device class: {}", deviceClass, e);
             return null;
         }
-
-        device.load(core);
-        device.init();
+        if(device != null){
+            device.load(core);
+            device.init();
+        }
         return device;
     }
 
@@ -105,19 +181,24 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
      * @param deviceClass 设备类型标识（如 "air.monitor.so2"）
      * @return 硬件型号（如 "SMS8200"），未知类型返回 null
      */
-    public static String classToModel(String deviceClass) {
-        if (deviceClass == null) return null;
-        switch (deviceClass) {
-            case "air.monitor.so2": return "SMS8200";
-            case "air.monitor.co": return "SMS8500";
-            case "air.monitor.no2": return "SMS8300";
-            case "air.monitor.o3": return "SMS8400";
-            case "air.monitor.qc": return "SMS8910";
-            case "air.monitor.pm.qc": return "SMS8220";
-            case "air.monitor.calibrator": return "SMS8600";
-            case "power.supply.stabilizer": return "IRP0501B";
-            case "sample.tube": return "SMS6930";
-            default: return null;
+    /**
+     * 根据设备类型code 获取 【设备型号-中文名】映射
+     */
+    public static Map<String, String> classToModelMap(String deviceClass) {
+        if (deviceClass == null) {
+            return Collections.emptyMap();
         }
+        return CLASS_MODEL_MAP.getOrDefault(deviceClass, Collections.emptyMap());
     }
+
+    /**
+        根据mode获取protocol
+    */
+    public static String getProtocolByMode(String model){
+        if(model == null){
+            return null;
+        }
+        return MODEL_PROTOCOL_MAP.get(model);
+    }
+
 }

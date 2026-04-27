@@ -210,7 +210,7 @@ public class O3Device extends SmsDeviceBase {
         // 校准相关属性
         setAttribute(new NumericAttribute(
                 "calibration_concentration", AttributeClass.O3, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
-                1, false, false));
+                1, true, true));
         setAttribute(new NumericAttribute(
                 "calibration_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, false));
