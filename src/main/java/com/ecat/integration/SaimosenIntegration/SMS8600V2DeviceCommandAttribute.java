@@ -212,12 +212,13 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
             default:
                 cmdToSend = config.cmdTemplate;
         }
-        // 事务策略下发命令并处理响应
+        // 事务策略下发命令并处理响应  加锁隔离
         return SerialTransactionStrategy.executeWithLambda(serialSource, source -> {
             return serialSource.asyncSendData(cmdToSend)
                 .thenCompose(v -> {
                     ByteResponseHandlingContext<byte[]> context = new ByteResponseHandlingContext<>(type.getBytes());
                     //log.info("PM3006SDevice {} - Handling response context: {}", getId(), context);
+
                     return responseHandlerStrategy.handleResponse(context);
                     //responseHandlerStrategy.handleResponse(new ResponseHandlingContext<>(type))
                 });
@@ -231,21 +232,49 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
      */
     private Boolean processResponse(ByteResponseHandlingContext<byte[]> context) {
         String result = context.getReceiveBuffer().toString();
-        CommandConfig config = commandConfigMap.get(context.getNewValue());
-        if (config == null) {
-            throw new IllegalStateException("Unregistered command type: " + context.getNewValue());
-        }
         log.info("命令{}收到响应{}", context.getNewValue(), result);
-
-        // 因设备无质控状态， 只能默认先执行结束，仪器如果未在校准模式则结束返回失败状态，导致无法完全按照返回的失败标志返回是否失败，目前处理为响应即成功
-        // if(result.contains(config.successFlag)) return true;
-        // if(result.contains(config.failFlag)) return false;
-
-        return true; // 只要有响应就认为成功
+        if((new String(context.getNewValue())).equals("span_end")){
+            if(result.equals("calsendok$")){
+                return true;
+            }
+        } else if ((new String(context.getNewValue())).equals("zero_end")) {
+            if(result.equals("calzendok$")){
+                return true;
+            }
+        }else if ((new String(context.getNewValue())).equals("span_start")) {
+            if(result.equals("calspanok$")){
+                return true;
+            }
+        }else if ((new String(context.getNewValue())).equals("zero_start")) {
+            if(result.equals("calzerook$")){
+                return true;
+            }
+        }else if ((new String(context.getNewValue())).equals("gpt_start")) {
+            if(result.equals("calgptok$")){
+                return true;
+            }
+        }else if ((new String(context.getNewValue())).equals("gpt_end")) {
+            if(result.equals("calgendok$")){
+                return true;
+            }
+        }
+        return false; // 只要有响应就认为成功
     }
     protected byte[] checkByteResponse(byte[] buffer) {
+        // $ 对应的ASCII字节是 0x24，判断是否以 $ 结束
+        if (buffer == null || buffer.length == 0) {
+            return new byte[0];
+        }
 
-        return buffer;
+        // 获取最后一个字节，判断是否是 $
+        byte endChar = 0x24; // $ 符号
+        if (buffer[buffer.length - 1] == endChar) {
+            // 以 $ 结尾，返回完整数据
+            return buffer;
+        } else {
+            // 不是以 $ 结尾，返回空数组表示不完整
+            return null;
+        }
     }
 
     protected String checkReadBuffer(String response) {

@@ -192,40 +192,33 @@ public class SMS8600V2Device extends SerialDeviceBase {
         // SO2钢瓶气浓度  需要改造成-串口控制型属性，且可以配置信息
         setAttribute(new SMS8600V2CylinderGasNumericAttribute("gas_so2_cylinder_gas_conc", AttributeClass.OTHER_GAS_CONCENTRATION,
                 AirVolumeUnit.PPM, AirVolumeUnit.PPM, 3,
-                true, true, serialSource,
-                responseHandlerStrategy));
+                true, true, serialSource));
         // CO钢瓶气浓度
         setAttribute(new SMS8600V2CylinderGasNumericAttribute("gas_co_cylinder_gas_conc", AttributeClass.OTHER_GAS_CONCENTRATION,
                 AirVolumeUnit.PPM, AirVolumeUnit.PPM, 3,
-                true, true, serialSource,
-                responseHandlerStrategy));
+                true, true, serialSource));
         // NO2钢瓶气浓度
         setAttribute(new SMS8600V2CylinderGasNumericAttribute("gas_no_cylinder_gas_conc", AttributeClass.OTHER_GAS_CONCENTRATION,
                 AirVolumeUnit.PPM, AirVolumeUnit.PPM, 3,
-                true, true, serialSource,
-                responseHandlerStrategy));
+                true, true, serialSource));
         // 校准气体配置
         List<String> gasNumberValveOptions = new ArrayList<>(gasNumberMapper.keySet());
         // 通道1气体
         setAttribute(new SMS8600V2DeviceStringSelectAttribute("channel_1_gas", AttributeClass.VALUE, true,
                 gasNumberValveOptions,
-                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_1, serialSource,
-                responseHandlerStrategy));
+                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_1, serialSource));
         // 通道2气体
         setAttribute(new SMS8600V2DeviceStringSelectAttribute("channel_2_gas", AttributeClass.VALUE, true,
                 gasNumberValveOptions,
-                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_2, serialSource,
-                responseHandlerStrategy));
+                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_2, serialSource));
         // 通道3气体
         setAttribute(new SMS8600V2DeviceStringSelectAttribute("channel_3_gas", AttributeClass.VALUE, true,
                 gasNumberValveOptions,
-                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_3, serialSource,
-                responseHandlerStrategy));
+                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_3, serialSource));
         // 通道4气体
         setAttribute(new SMS8600V2DeviceStringSelectAttribute("channel_4_gas", AttributeClass.VALUE, true,
                 gasNumberValveOptions,
-                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_4, serialSource,
-                responseHandlerStrategy));
+                SMS8600V2DeviceStringSelectAttribute.ChannelNumber.CHANNEL_4, serialSource));
         // 校准流量配置
         setAttribute(new NumericAttribute("calibration_flow_config", AttributeClass.FLOW, LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE, 0, true, true));
         // 校准气体配置
