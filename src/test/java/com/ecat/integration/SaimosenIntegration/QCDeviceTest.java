@@ -54,10 +54,15 @@ public class QCDeviceTest {
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
     @Mock private BusRegistry mockBusRegistry;
+    
+    private ScheduledExecutorService realExecutor; // 用于delay方法的真实executor
 
     @Before
     public void setUp() throws Exception {
         mockitoCloseable = MockitoAnnotations.openMocks(this);
+        
+        // 创建真实的ScheduledExecutorService用于delay方法
+        realExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
         ConfigEntry entry = createTestEntry();
         device = new QCDevice(entry);
@@ -71,7 +76,7 @@ public class QCDeviceTest {
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
+        when(mockTaskManager.getExecutorService()).thenReturn(realExecutor); // 使用真实executor
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(), any());
@@ -82,6 +87,9 @@ public class QCDeviceTest {
 
     @After
     public void tearDown() throws Exception {
+        if (realExecutor != null) {
+            realExecutor.shutdownNow();
+        }
         mockitoCloseable.close();
     }
 
@@ -299,16 +307,21 @@ public class QCDeviceTest {
     @Test
     @SuppressWarnings("unchecked")
     public void testStart_SchedulesReadTask() throws Exception {
-        when((ScheduledFuture<Object>) mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-                .thenReturn((ScheduledFuture<Object>) mockScheduledFuture);
-
+        // 使用spy来跟踪realExecutor的调用
+        ScheduledExecutorService spyExecutor = org.mockito.Mockito.spy(realExecutor);
+        setPrivateField(device, "core", mockEcatCore);
+        TaskManager mockTaskManager = mock(TaskManager.class);
+        when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
+        when(mockTaskManager.getExecutorService()).thenReturn(spyExecutor);
+        
         device.start();
 
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
+        // 验证scheduleWithFixedDelay被调用
+        verify(spyExecutor, times(1)).scheduleWithFixedDelay(
                 any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
 
         ScheduledFuture<?> actualFuture = (ScheduledFuture<?>) getPrivateField(device, "readFuture");
-        assertEquals(mockScheduledFuture, actualFuture);
+        assertNotNull(actualFuture);
     }
 
     @Test
@@ -342,6 +355,12 @@ public class QCDeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockResponse2));
 
         invokePrivateMethod(device, "readRegisters");
+
+        // 等待异步操作完成（最多等待2秒，每100ms检查一次）
+        waitForAsyncOperation(() -> {
+            ModbusShortAttribute so2_film = (ModbusShortAttribute) device.getAttrs().get("so2_film_changer_status");
+            return so2_film != null && so2_film.getValue() != null;
+        }, 2000);
 
         // 断言部分属性已被正确解析
         ModbusFloatAttribute benchTemp = (ModbusFloatAttribute) device.getAttrs().get("bench_temp");
@@ -420,6 +439,21 @@ public class QCDeviceTest {
                                  + Character.digit(hex.charAt(i+1), 16));
         }
         return data;
+    }
+
+    /**
+     * 等待异步操作完成
+     * @param condition 检查条件，返回true表示完成
+     * @param timeoutMs 超时时间（毫秒）
+     */
+    private void waitForAsyncOperation(java.util.function.Supplier<Boolean> condition, long timeoutMs) throws InterruptedException {
+        long startTime = System.currentTimeMillis();
+        while (!condition.get()) {
+            if (System.currentTimeMillis() - startTime > timeoutMs) {
+                throw new AssertionError("异步操作超时，等待了" + timeoutMs + "ms");
+            }
+            Thread.sleep(50); // 每50ms检查一次，减少等待时间
+        }
     }
 
     // ========== I18n测试方法 ==========

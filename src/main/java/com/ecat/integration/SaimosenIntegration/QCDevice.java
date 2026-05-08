@@ -1,10 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -549,32 +545,36 @@ public class QCDevice extends SmsDeviceBase {
                         try {
                             // 处理第一块数据
                             short[] firstBlockRegisters = firstResponse.getShortData();
+                            log.info("QCDevice 第一块数据: {} 长度: {}", Arrays.toString(firstBlockRegisters), firstBlockRegisters.length);
                             parseBlockData(firstBlockRegisters, FIRST_BLOCK_START);
+                            return delay(1000, TimeUnit.MILLISECONDS).thenCompose(z -> {
+                                // 再读取第二个地址块(剩余122个参数)
+                                return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
+                                        .thenApply(secondResponse -> {
+                                            try {
+                                                // 处理第二块数据
+                                                short[] secondBlockRegisters = secondResponse.getShortData();
+                                                log.info("QCDevice 第二块数据: {} 长度: {}", Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
+                                                parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
 
-                            // 再读取第二个地址块(剩余122个参数)
-                            return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
-                                    .thenApply(secondResponse -> {
-                                        try {
-                                            // 处理第二块数据
-                                            short[] secondBlockRegisters = secondResponse.getShortData();
-                                            parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-                                            
-                                            // 更新计算属性
-                                            updateCalulateAttr();
+                                                // 更新计算属性
+                                                updateCalulateAttr();
 
-                                            // 设置所有属性状态
-                                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
-                                            publicAttrsState();
-                                            log.info("QCDevice " + getId() + " - 数据更新成功");
-                                            return true;
-                                        } catch (Exception e) {
-                                            log.error("QCDevice 第二块数据解析失败: " + e.getMessage());
-                                            getAttrs().values()
-                                                    .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                            publicAttrsState();
-                                            return false;
-                                        }
-                                    });
+                                                // 设置所有属性状态
+                                                getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
+                                                publicAttrsState();
+                                                log.info("QCDevice " + getId() + " - 数据更新成功");
+                                                return true;
+                                            } catch (Exception e) {
+                                                log.error("QCDevice 第二块数据解析失败: " + e.getMessage());
+                                                getAttrs().values()
+                                                        .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                                                publicAttrsState();
+                                                return false;
+                                            }
+                                        });
+                            });
+
                         } catch (Exception e) {
                             log.error("QCDevice 第一块数据解析失败: " + e.getMessage());
                             getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
@@ -583,6 +583,17 @@ public class QCDevice extends SmsDeviceBase {
                         }
                     });
         });
+    }
+    /**
+     * 创建异步延迟Future，用于在命令之间添加延迟以适应设备性能
+     * @param delay 延迟时间
+     * @param unit 时间单位
+     * @return CompletableFuture<Void>
+     */
+    private CompletableFuture<Void> delay(long delay, TimeUnit unit) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        getScheduledExecutor().schedule(() -> future.complete(null), delay, unit);
+        return future;
     }
 
     /**
