@@ -538,50 +538,54 @@ public class QCDevice extends SmsDeviceBase {
      * 定时读取Modbus寄存器数据
      */
     protected void readRegisters() {
+        // 第一个独立请求：读取第一个地址块(前110个参数)
         ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-            // 先读取第一个地址块(前110个参数)
             return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
-                    .thenCompose(firstResponse -> {
+                    .thenApply(firstResponse -> {
                         try {
                             // 处理第一块数据
                             short[] firstBlockRegisters = firstResponse.getShortData();
                             log.info("QCDevice 第一块数据: {} 长度: {}", Arrays.toString(firstBlockRegisters), firstBlockRegisters.length);
                             parseBlockData(firstBlockRegisters, FIRST_BLOCK_START);
-                            return delay(1000, TimeUnit.MILLISECONDS).thenCompose(z -> {
-                                // 再读取第二个地址块(剩余122个参数)
-                                return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
-                                        .thenApply(secondResponse -> {
-                                            try {
-                                                // 处理第二块数据
-                                                short[] secondBlockRegisters = secondResponse.getShortData();
-                                                log.info("QCDevice 第二块数据: {} 长度: {}", Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
-                                                parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-
-                                                // 更新计算属性
-                                                updateCalulateAttr();
-
-                                                // 设置所有属性状态
-                                                getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
-                                                publicAttrsState();
-                                                log.info("QCDevice " + getId() + " - 数据更新成功");
-                                                return true;
-                                            } catch (Exception e) {
-                                                log.error("QCDevice 第二块数据解析失败: " + e.getMessage());
-                                                getAttrs().values()
-                                                        .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                                publicAttrsState();
-                                                return false;
-                                            }
-                                        });
-                            });
-
+                            log.info("QCDevice " + getId() + " - 第一块数据更新成功");
+                            return true;
                         } catch (Exception e) {
                             log.error("QCDevice 第一块数据解析失败: " + e.getMessage());
                             getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
                             publicAttrsState();
-                            return CompletableFuture.completedFuture(false);
+                            return false;
                         }
                     });
+        });
+
+        // 延迟1秒后执行第二个独立请求：读取第二个地址块(剩余122个参数)
+        delay(1000, TimeUnit.MILLISECONDS).thenCompose(z -> {
+            return ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
+                return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
+                        .thenApply(secondResponse -> {
+                            try {
+                                // 处理第二块数据
+                                short[] secondBlockRegisters = secondResponse.getShortData();
+                                log.info("QCDevice 第二块数据: {} 长度: {}", Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
+                                parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
+
+                                // 更新计算属性
+                                updateCalulateAttr();
+
+                                // 设置所有属性状态
+                                getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
+                                publicAttrsState();
+                                log.info("QCDevice " + getId() + " - 第二块数据更新成功");
+                                return true;
+                            } catch (Exception e) {
+                                log.error("QCDevice 第二块数据解析失败: " + e.getMessage());
+                                getAttrs().values()
+                                        .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                                publicAttrsState();
+                                return false;
+                            }
+                        });
+            });
         });
     }
     /**
