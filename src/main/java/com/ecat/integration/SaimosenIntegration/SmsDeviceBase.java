@@ -12,6 +12,7 @@ import com.ecat.integration.ModbusIntegration.ModbusSerialInfo;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.ModbusIntegration.ModbusTcpInfo;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.Const;
 
 /**
  * Abstract base class for devices that integrate with the Saimosen system.
@@ -151,7 +152,8 @@ public abstract class SmsDeviceBase extends DeviceBase {
         ModbusProtocol protocol = "RTU_OVER_TCP".equals(tcpProtocol)
             ? ModbusProtocol.RTU_OVER_TCP : ModbusProtocol.TCP;
 
-        modbusInfo = new ModbusTcpInfo(ipAddress, port, slaveId, protocol);
+        int timeout = parseNumeric(commSettings, "timeout", Const.DEFAULT_TCP_TIMEOUT_MS);
+        modbusInfo = new ModbusTcpInfo(ipAddress, port, slaveId, protocol, timeout);
     }
 
     /**
