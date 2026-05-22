@@ -112,25 +112,25 @@ public class O3Device extends SmsDeviceBase {
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "slope", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                3, false, false));
+                3, false, true));
         setAttribute(new NumericAttribute(
                 "intercept", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                3, false, false));
+                3, false, true));
         setAttribute(new NumericAttribute(
                 "sample_press_corr", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
-                2, false, false));
+                2, true, true));
         setAttribute(new NumericAttribute(
                 "pump_press_corr", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
-                2, false, false));
+                2, true, true));
         setAttribute(new NumericAttribute(
                 "sample_temp_corr", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS,
-                1, false, false));
+                1, true, true));
         setAttribute(new NumericAttribute(
                 "sample_flow_corr", AttributeClass.FLOW, LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
-                2, false, false));
+                2, true, true));
         setAttribute(new NumericAttribute(
                 "led_set_current", AttributeClass.CURRENT, NoConversionUnit.of("mA"), NoConversionUnit.of("mA"),
-                3, false, false));
+                3, true, true));
         setAttribute(new NumericAttribute(
                 "led_current", AttributeClass.CURRENT, NoConversionUnit.of("mA"), NoConversionUnit.of("mA"),
                 3, false, false));
