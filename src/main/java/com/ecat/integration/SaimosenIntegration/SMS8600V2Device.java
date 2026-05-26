@@ -457,7 +457,7 @@ public class SMS8600V2Device extends SerialDeviceBase {
                 return;  // 占位符数据，不更新属性，保持原状态
             }
             double flow_value = Double.parseDouble(spanFlow);
-            if(flow_value > 0){ // 流量大于0  更新气体的流量
+            if(flow_value > 0 && status == AttributeStatus.SPAN_CHECK){ // 流量大于0  更新气体的流量
                 StringSelectAttribute calibrationGasConfig = (StringSelectAttribute) getAttrs().get("calibration_gas_config");
                 String gasName = calibrationGasConfig.getValue();
                 if(gasName != null && gasMapper.get(gasName).equals("S")){

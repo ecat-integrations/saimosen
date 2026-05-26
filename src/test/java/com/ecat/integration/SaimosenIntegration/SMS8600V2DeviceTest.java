@@ -907,7 +907,7 @@ public class SMS8600V2DeviceTest {
         StringSelectAttribute gasConfig = (StringSelectAttribute) sms8600v2Device.getAttrs().get("calibration_gas_config");
         gasConfig.updateValue("S");
 
-        setupContextReceiveBuffer(context, "3000.0,3001.0,0,2500.0,101.3,500.0,25.0,26.0,45.0,0,35.0,100.0,100.0,100.0,5.0,500,12.0,13.0,100.0,1.0,0.0,0000,0$");
+        setupContextReceiveBuffer(context, "3000.0,3001.0,0,2500.0,101.3,500.0,25.0,26.0,45.0,0,35.0,100.0,100.0,100.0,5.0,500,12.0,13.0,100.0,1.0,0.0,0000,2$");
         when(context.getNewValue()).thenReturn("calotwc$".getBytes());
 
         invokePrivateMethod(sms8600v2Device, "processResponse", context);
@@ -933,7 +933,7 @@ public class SMS8600V2DeviceTest {
         StringSelectAttribute gasConfig = (StringSelectAttribute) sms8600v2Device.getAttrs().get("calibration_gas_config");
         gasConfig.updateValue("N");
 
-        setupContextReceiveBuffer(context, "3000.0,3001.0,0,2500.0,101.3,500.0,25.0,26.0,45.0,0,35.0,100.0,100.0,100.0,5.0,600,12.0,13.0,100.0,1.0,0.0,0000,0$");
+        setupContextReceiveBuffer(context, "3000.0,3001.0,0,2500.0,101.3,500.0,25.0,26.0,45.0,0,35.0,100.0,100.0,100.0,5.0,600,12.0,13.0,100.0,1.0,0.0,0000,2$");
         when(context.getNewValue()).thenReturn("calotwc$".getBytes());
 
         invokePrivateMethod(sms8600v2Device, "processResponse", context);
@@ -959,7 +959,7 @@ public class SMS8600V2DeviceTest {
         StringSelectAttribute gasConfig = (StringSelectAttribute) sms8600v2Device.getAttrs().get("calibration_gas_config");
         gasConfig.updateValue("C");
 
-        setupContextReceiveBuffer(context, "3000.0,3001.0,0,2500.0,101.3,500.0,25.0,26.0,45.0,0,35.0,100.0,100.0,100.0,5.0,700,12.0,13.0,100.0,1.0,0.0,0000,0$");
+        setupContextReceiveBuffer(context, "3000.0,3001.0,0,2500.0,101.3,500.0,25.0,26.0,45.0,0,35.0,100.0,100.0,100.0,5.0,700,12.0,13.0,100.0,1.0,0.0,0000,2$");
         when(context.getNewValue()).thenReturn("calotwc$".getBytes());
 
         invokePrivateMethod(sms8600v2Device, "processResponse", context);
