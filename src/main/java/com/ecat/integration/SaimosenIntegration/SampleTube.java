@@ -5,18 +5,24 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
+import com.ecat.core.Utils.DynamicConfig.ConfigItem;
+import com.ecat.core.Utils.DynamicConfig.ConfigItemBuilder;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
-import com.ecat.core.State.Unit.LiterFlowUnit;
+import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.core.State.Unit.PowerUnit;
 import com.ecat.core.State.Unit.RatioUnit;
+import com.ecat.core.State.Unit.SpeedUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.EndianConverter.AbstractEndianConverter;
 import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter;
+import lombok.Getter;
+import lombok.Setter;
 
 /**
  * 采样管加热器设备类，用于通过Modbus协议读取和控制采样管加热器设备
@@ -50,8 +56,38 @@ public class SampleTube extends SmsDeviceBase {
     // 读取任务
     private ScheduledFuture<?> readFuture;
 
+    private final DeviceConfig deviceConfig;
+
     public SampleTube(ConfigEntry entry) {
         super(entry);
+        this.deviceConfig = parseConfig(entry.getData());
+    }
+
+    public ConfigDefinition getConfigDefinition() {
+        ConfigDefinition configDef = new ConfigDefinition();
+        ConfigItemBuilder deviceSettings = new ConfigItemBuilder()
+                .add(new ConfigItem<>("tube_length", Double.class, true, null))
+                .add(new ConfigItem<>("tube_inner_diameter", Double.class, true, null));
+        ConfigItemBuilder config = new ConfigItemBuilder()
+                .add(new ConfigItem<>("device_settings", java.util.Map.class, true, null)
+                        .addNestedConfigItems(deviceSettings));
+        configDef.define(config);
+        return configDef;
+    }
+
+    private DeviceConfig parseConfig(java.util.Map<String, Object> config) {
+        DeviceConfig cfg = new DeviceConfig();
+        java.util.Map<String, Object> ds = (java.util.Map<String, Object>) config.getOrDefault("device_settings", new java.util.HashMap<>());
+        cfg.setTubeLength((Double) ds.getOrDefault("tube_length", 4.5));
+        cfg.setTubeInnerDiameter((Double) ds.getOrDefault("tube_inner_diameter", 0.03));
+        return cfg;
+    }
+
+    @Getter
+    @Setter
+    public static class DeviceConfig {
+        private Double tubeLength;
+        private Double tubeInnerDiameter;
     }
 
     /**
@@ -169,8 +205,8 @@ public class SampleTube extends SmsDeviceBase {
         setAttribute(new ModbusScalableFloatSRAttribute(
                 "gas_flow_rate",
                 AttributeClass.FLOW,
-                LiterFlowUnit.L_PER_MINUTE,
-                LiterFlowUnit.L_PER_MINUTE,
+                SpeedUnit.METER_PER_SECOND,
+                SpeedUnit.METER_PER_SECOND,
                 1,
                 false,
                 false,
@@ -254,6 +290,18 @@ public class SampleTube extends SmsDeviceBase {
                 bigConverter,
                 10
         ));
+
+        // 采样管长度（从 ConfigFlow 配置获取，非 Modbus）
+        NumericAttribute tubeLengthAttr = new NumericAttribute("tube_length", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false);
+        tubeLengthAttr.updateValue(deviceConfig.getTubeLength(), AttributeStatus.NORMAL);
+        setAttribute(tubeLengthAttr);
+
+        // 采样管内径（从 ConfigFlow 配置获取，非 Modbus）
+        NumericAttribute tubeDiameterAttr = new NumericAttribute("tube_inner_diameter", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false);
+        tubeDiameterAttr.updateValue(deviceConfig.getTubeInnerDiameter(), AttributeStatus.NORMAL);
+        setAttribute(tubeDiameterAttr);
     }
 
     /**

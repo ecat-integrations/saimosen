@@ -407,8 +407,8 @@ public class SampleTubeTest {
         assertTrue("未使用字段9应该存在", attrs.containsKey("reserved_9"));
         assertTrue("加热管设置温度属性应该存在", attrs.containsKey("heating_tube_target_temp"));
 
-        // 验证属性总数（11个寄存器对应11个属性）
-        assertEquals("应该有11个属性", 11, attrs.size());
+        // 验证属性总数（11个寄存器对应11个属性 + 2个配置属性 tube_length/tube_inner_diameter）
+        assertEquals("应该有13个属性", 13, attrs.size());
     }
 
     @Test

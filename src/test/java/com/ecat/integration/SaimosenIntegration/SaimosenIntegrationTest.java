@@ -163,6 +163,7 @@ public class SaimosenIntegrationTest {
         Map<String, Object> data = entry.getData();
         Map<String, Object> deviceSettings = new HashMap<>();
         deviceSettings.put("sampling_tube_length", 3.0);
+        deviceSettings.put("sampling_tube_inner_diameter", 0.1);
         data.put("device_settings", deviceSettings);
 
         setupMockCoreForDeviceCreation();

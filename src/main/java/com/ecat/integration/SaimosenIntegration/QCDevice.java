@@ -483,6 +483,18 @@ public class QCDevice extends SmsDeviceBase {
         attributeMap.put(231, new AttributeInfo("pm2_5_working_flow", AttributeClass.FLOW, "PM2.5工况流量",
                 ModbusDataType.FLOAT, 2, LiterFlowUnit.L_PER_MINUTE, false, 2));
         
+        // 采样管长度（从配置获取，非 Modbus）
+        NumericAttribute tubeLengthAttr = new NumericAttribute("tube_length", "采样管长度", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false);
+        tubeLengthAttr.updateValue(deviceConfig.getSamplingTubeLength(), AttributeStatus.NORMAL);
+        setAttribute(tubeLengthAttr);
+
+        // 采样管内径（从配置获取，非 Modbus）
+        NumericAttribute tubeDiameterAttr = new NumericAttribute("tube_inner_diameter", "采样管内径", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false);
+        tubeDiameterAttr.updateValue(deviceConfig.getSamplingTubeInnerDiameter(), AttributeStatus.NORMAL);
+        setAttribute(tubeDiameterAttr);
+
         // 计算参数
         setAttribute(new NumericAttribute("sampling_tube_residence_time", AttributeClass.TIME,
                 NoConversionUnit.of("s", "秒"), NoConversionUnit.of("s", "秒"), 1, false, false));
@@ -792,7 +804,8 @@ public class QCDevice extends SmsDeviceBase {
 
             // 定义 device_settings 配置项
             ConfigItemBuilder deviceConfig = new ConfigItemBuilder()
-                    .add(new ConfigItem<>("sampling_tube_length", Double.class, true, null));
+                    .add(new ConfigItem<>("sampling_tube_length", Double.class, true, null))
+                    .add(new ConfigItem<>("sampling_tube_inner_diameter", Double.class, true, null));
             
             // 定义每个校准项的配置项
             ConfigItemBuilder config = new ConfigItemBuilder()
@@ -823,8 +836,9 @@ public class QCDevice extends SmsDeviceBase {
         
         // 解析 device_settings 配置
         Map<String, Object> dsConfig = (Map<String, Object>) config.get("device_settings");
-        deviceConfig.setSamplingTubeLength((double) dsConfig.getOrDefault("sampling_tube_length", 3));
-        
+        deviceConfig.setSamplingTubeLength((double) dsConfig.getOrDefault("sampling_tube_length", 4.5));
+        deviceConfig.setSamplingTubeInnerDiameter((double) dsConfig.getOrDefault("sampling_tube_inner_diameter", 0.03));
+
         return deviceConfig;
     }
 
@@ -833,5 +847,6 @@ public class QCDevice extends SmsDeviceBase {
     @Setter
     public static class DeviceConfig {
         private Double samplingTubeLength;
+        private Double samplingTubeInnerDiameter;
     }
 }

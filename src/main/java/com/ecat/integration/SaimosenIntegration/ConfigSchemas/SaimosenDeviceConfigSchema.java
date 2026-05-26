@@ -61,6 +61,9 @@ public class SaimosenDeviceConfigSchema implements ConfigSchemaProvider {
             .addField(new TextConfigItem("vendor", false).displayName("厂商"))
             .addField(new FloatConfigItem("sampling_tube_length", false)
                 .displayName("采样管长度(m)")
-                .range(0, 100));
+                .range(0, 100))
+            .addField(new FloatConfigItem("sampling_tube_inner_diameter", false)
+                .displayName("采样管内径(m)")
+                .range(0, 10));
     }
 }

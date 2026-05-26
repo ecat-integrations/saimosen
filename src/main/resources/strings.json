@@ -340,7 +340,9 @@
       "nox_gas_temp": "NOX支管温度",
       "co_gas_temp": "CO支管温度",
       "o3_gas_temp": "O3支管温度",
-      "sampling_tube_residence_time": "采样管滞留时间"
+      "sampling_tube_residence_time": "采样管滞留时间",
+      "tube_length": "采样管长度",
+      "tube_inner_diameter": "采样管内径"
     },
     "smart_power_stabilizer": {
       "current_l1": "L1路电流",
@@ -396,7 +398,9 @@
       "fan_power": "风机功率",
       "heating_belt_power": "加热带功率",
       "reserved_9": "保留字段9",
-      "heating_tube_target_temp": "加热管设置温度"
+      "heating_tube_target_temp": "加热管设置温度",
+      "tube_length": "采样管长度",
+      "tube_inner_diameter": "采样管内径"
     },
     "particulate_zero_checker": {
       "pm10_zero_check_command": "PM10零点检查命令",

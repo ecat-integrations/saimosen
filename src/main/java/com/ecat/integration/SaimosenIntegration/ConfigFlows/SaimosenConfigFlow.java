@@ -63,6 +63,9 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     /** 质控仪设备类型标识 */
     private static final String QC_CLASS = "air.monitor.qc";
 
+    /** 采样管设备类型标识 */
+    private static final String SAMPLE_TUBE_CLASS = "sample.tube";
+
     public SaimosenConfigFlow() {
         super();
 
@@ -72,6 +75,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         registerStep("device_config", this::stepDeviceConfig, "设备配置");
         registerStep("device_mode_config", this::stepDeviceModeConfig, "设备型号选择");
         registerStep("qc_config", this::stepQcConfig, "质控仪配置");
+        registerStep("tube_config", this::stepTubeConfig, "采样管配置");
         registerStep("protocol_select", this::stepProtocolSelect, "协议选择");
         registerStep("comm_config", this::stepCommConfig, "通讯配置");
         registerStep("final_confirm", this::stepFinalConfirm, "确认配置");
@@ -129,17 +133,16 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         if (userInput == null || userInput.isEmpty()) {
             return showForm("device_mode_config", createDeviceModeBasicSchema(deviceClass), new HashMap<>());
         }
-//        ConfigSchema schema = createDeviceModeBasicSchema(deviceClassData);
-//        Map<String, Object> errors = schema.validate(userInput);
-//        if (!errors.isEmpty()) {
-//            return showForm("device_mode_config", schema, errors);
-//        }
-//        context.getEntryData().putAll(userInput);
+        // 将 model 和 name 保存到 entryData（此步骤的 schema 包含这两个字段）
         context.getEntryData().put("model", userInput.get("model"));
         context.getEntryData().put("name", userInput.get("name"));
-        // 质控仪需要额外配置采样管长度
+        // 质控仪需要额外配置采样管长度和内径
         if (QC_CLASS.equals(deviceClass)) {
             return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
+        }
+        // 采样管需要额外配置采样管长度和内径
+        if (SAMPLE_TUBE_CLASS.equals(deviceClass)) {
+            return showForm("tube_config", createTubeConfigSchema(), new HashMap<>());
         }
         ConfigSchema protocolSchema = null;
         if (SaimosenIntegration.getProtocolByMode((String) userInput.get("model")).equals(SaimosenIntegration.Protocol.MODBUS.name())) {
@@ -161,11 +164,51 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         if (!errors.isEmpty()) {
             return showForm("qc_config", schema, errors);
         }
-        // 将采样管长度嵌套到 device_settings map 中，避免污染 entryData 顶层
+        // 将采样管参数嵌套到 device_settings map 中，避免污染 entryData 顶层
         Map<String, Object> deviceSettings = new HashMap<>();
         Object tubeLengthObj = userInput.get("sampling_tube_length");
         if (tubeLengthObj != null) {
             deviceSettings.put("sampling_tube_length", Double.parseDouble(tubeLengthObj.toString()));
+        }
+        Object tubeDiameterObj = userInput.get("sampling_tube_inner_diameter");
+        if (tubeDiameterObj != null) {
+            deviceSettings.put("sampling_tube_inner_diameter", Double.parseDouble(tubeDiameterObj.toString()));
+        }
+        context.getEntryData().put("device_settings", deviceSettings);
+        String model = (String) context.getEntryData().get("model");
+        ConfigSchema protocolSchema = null;
+        if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.MODBUS.name())) {
+            protocolSchema = new ModbusCommTypeSchema().createSchema();
+        } else if (SaimosenIntegration.getProtocolByMode(model).equals(SaimosenIntegration.Protocol.SERIAL.name())) {
+            protocolSchema = new SerialCommConfigSchema().createSchema();
+        }
+        return showForm("protocol_select", protocolSchema, new HashMap<>());
+    }
+
+    /**
+     * 采样管专用配置步骤 - 采样管长度和内径
+     */
+    private ConfigFlowResult stepTubeConfig(Map<String, Object> userInput) {
+        if (userInput == null || userInput.isEmpty()) {
+            return showForm("tube_config", createTubeConfigSchema(), new HashMap<>());
+        }
+        ConfigSchema schema = createTubeConfigSchema();
+        Map<String, Object> errors = schema.validate(userInput);
+        if (!errors.isEmpty()) {
+            return showForm("tube_config", schema, errors);
+        }
+        Map<String, Object> deviceSettings = new HashMap<>();
+        Object tubeLengthObj = userInput.get("tube_length");
+        Object tubeDiameterObj = userInput.get("tube_inner_diameter");
+        if (tubeLengthObj != null) {
+            deviceSettings.put("tube_length", Double.parseDouble(tubeLengthObj.toString()));
+        } else {
+            deviceSettings.put("tube_length", 4.5);
+        }
+        if (tubeDiameterObj != null) {
+            deviceSettings.put("tube_inner_diameter", Double.parseDouble(tubeDiameterObj.toString()));
+        } else {
+            deviceSettings.put("tube_inner_diameter", 0.03);
         }
         context.getEntryData().put("device_settings", deviceSettings);
         String model = (String) context.getEntryData().get("model");
@@ -311,10 +354,26 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     private ConfigSchema createQcConfigSchema() {
         return new ConfigSchema()
             .addField(new TextConfigItem("qc_config_label", false,
-                "质控仪需要配置采样管长度，请填写实际使用的采样管长度。")
+                "质控仪需要配置采样管参数，请填写实际使用参数。")
                 .displayName("质控仪配置说明"))
-            .addField(new TextConfigItem("sampling_tube_length", true)
-                .displayName("采样管长度(m)"));
+            .addField(new TextConfigItem("sampling_tube_length", true, "4.5")
+                .displayName("采样管长度(m)"))
+            .addField(new TextConfigItem("sampling_tube_inner_diameter", true, "0.03")
+                .displayName("采样管内径(m)"));
+    }
+
+    /**
+     * 创建采样管专用配置 Schema（采样管长度和内径）
+     */
+    private ConfigSchema createTubeConfigSchema() {
+        return new ConfigSchema()
+            .addField(new TextConfigItem("tube_config_label", false,
+                "采样管需要配置长度和内径，请填写实际参数。")
+                .displayName("采样管配置说明"))
+            .addField(new TextConfigItem("tube_length", true, "4.5")
+                .displayName("采样管长度(m)"))
+            .addField(new TextConfigItem("tube_inner_diameter", true, "0.03")
+                .displayName("采样管内径(m)"));
     }
     // ========== 设备型号选择步骤 ==========
     private ConfigSchema createDeviceModeBasicSchema(String deviceClass) {

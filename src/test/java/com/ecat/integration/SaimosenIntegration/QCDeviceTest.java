@@ -101,6 +101,7 @@ public class QCDeviceTest {
         // QCDevice 特有的 device_settings
         Map<String, Object> deviceSettings = new HashMap<>();
         deviceSettings.put("sampling_tube_length", 4.5);
+        deviceSettings.put("sampling_tube_inner_diameter", 0.1);
         config.put("device_settings", deviceSettings);
 
         Map<String, Object> serialSettings = new HashMap<>();
