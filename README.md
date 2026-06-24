@@ -103,6 +103,75 @@ devices:
 
 ```
 
+## IMPORT_FLOW 动态接入（同进程 SDK）
+
+除上文 YAML 静态配置外，本集成支持**外部同进程 SDK** 通过 `IMPORT_FLOW` discovery 动态接入设备：提供设备的**部分识别信息**（类型 / 型号 / 序列号），即可跳过人工向导的型号选择等前置 step、直达连接配置 step，再经 `submitStep` 推进入网。适用于已知设备身份、需程序化批量建设备的场景。
+
+### 统一入口
+
+`IMPORT_FLOW` 是 discovery 三源之一（与 `ZEROCONF` / `MQTT` 并列），**统一入口** = `ConfigFlowService.startDiscoveryFlow`（core 对所有 discovery 源只有一个入口，`source` 参数区分类型）：
+
+```java
+import com.ecat.core.ConfigEntry.SourceType;
+import com.ecat.core.ConfigFlow.ConfigFlowService;
+import com.ecat.core.ConfigFlow.ImportFlowPayload;
+
+ImportFlowPayload payload = new ImportFlowPayload(
+        "com.ecat:integration-saimosen",            // coordinate（目标集成 = 本集成）
+        1,                                           // version（本集成仅支持 v1）
+        "air.monitor.so2|SMS8200|SO2-SN001|测试SO2"); // data 串（见下）
+ConfigFlowService service = core.getConfigFlowService();
+ConfigFlowService.ConfigFlowInstance inst = service.startDiscoveryFlow(
+        "com.ecat:integration-saimosen", SourceType.IMPORT_FLOW, payload);
+// inst 落地连接配置 step（SHOW_FORM），后续用 service.submitStep(flowId, stepId, input) 推进至 CREATE_ENTRY
+```
+
+### data 串格式（version=1）
+
+`class|model|sn|name`，以 `|` 分隔，**name 可选**（缺省用默认名）：
+
+| 段 | 含义 | 示例 |
+|----|------|------|
+| class | 设备类型（必须为下表已知类型） | `air.monitor.so2` |
+| model | 型号（必须属于该 class） | `SMS8200` |
+| sn | 序列号（设备唯一标识，参与 uniqueId 派生） | `SO2-SN001` |
+| name | 设备名（可选，缺省用默认名） | `测试SO2` |
+
+示例：
+- 含 name：`air.monitor.so2|SMS8200|SO2-SN001|测试SO2`
+- 省略 name：`air.monitor.so2|SMS8200|SO2-SN002`
+
+### 支持的 class（合法设备类型）
+
+| class | 设备类型 | 落地 step |
+|-------|----------|-----------|
+| `air.monitor.so2` | SO2 分析仪 | `protocol_select` |
+| `air.monitor.co` | CO 分析仪 | `protocol_select` |
+| `air.monitor.no2` | NO2 分析仪 | `protocol_select` |
+| `air.monitor.o3` | O3 分析仪 | `protocol_select` |
+| `air.monitor.calibrator` | 动态气体校准仪 | `protocol_select` |
+| `air.monitor.pm.qc` | 颗粒物零点检查仪 | `protocol_select` |
+| `air.monitor.qc` | 质控仪 | `qc_config`（需采样管参数） |
+| `power.supply.stabilizer` | 智能稳压电源 | `protocol_select` |
+| `sample.tube` | 采样管加热器 | `tube_config`（需长度 / 内径） |
+
+> 各 class 对应的合法 model 以 `SaimosenIntegration.CLASS_MODEL_MAP`（`SaimosenIntegration.classToModelMap(class)`）为准——型号清单会随设备扩展，不在此穷举。
+
+### 严格校验（不符合则 ABORT，不建设备）
+
+core **不解析** data，本集成按 version 自解析 + 自校验（需求 R8/D-2）。以下情况返回 `ABORT`：
+- `version != 1`（本集成仅支持 v1）
+- data 为空或 `|` 分隔后段数 < 3（格式错误）
+- class 不是上表的已知类型
+- model 不属于该 class
+- 该 model 的通信协议未知
+
+### handler 行为
+
+解析通过后，handler 预填 `entryData`（class/vendor/model/sn/name），**跳过 `user` / `device_config` / `device_mode_config` 等型号选择前置 step**，按 class 直达连接配置区（`protocol_select` / `qc_config` / `tube_config`）。调用方随后用 `submitStep` 填连接参数 → `CREATE_ENTRY` → 设备加载，与人工向导最终产物一致（ConfigEntry + 设备实例）。
+
+> 实现见 `SaimosenConfigFlow.stepDiscoveryImportFlow`（注册于 `registerStepDiscovery(SourceType.IMPORT_FLOW, ...)`）；单测见 `SaimosenImportFlowTest`。
+
 ## 通信协议
 
 所有设备均通过Modbus RTU协议进行通信，具有以下特点：

@@ -24,6 +24,7 @@ import com.ecat.core.ConfigFlow.ConfigItem.EnumConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.TextConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.YamlConfigItem;
 import com.ecat.core.ConfigFlow.FlowContext;
+import com.ecat.core.ConfigFlow.ImportFlowPayload;
 import com.ecat.core.ConfigEntry.ConfigEntryRegistry;
 import com.ecat.core.ConfigEntry.SourceType;
 import com.ecat.core.Utils.DateTimeUtils;
@@ -79,6 +80,10 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         registerStep("protocol_select", this::stepProtocolSelect, "协议选择");
         registerStep("comm_config", this::stepCommConfig, "通讯配置");
         registerStep("final_confirm", this::stepFinalConfirm, "确认配置");
+
+        // IMPORT_FLOW 发现入口：外部（同进程 SDK）提供部分识别信息 → 跳过 user/device_config/device_mode_config
+        // （型号选择）等前置 step，预填 entryData 后直达连接配置区（见 stepDiscoveryImportFlow）
+        registerStepDiscovery(SourceType.IMPORT_FLOW, this::stepDiscoveryImportFlow);
     }
 
     // ========== 入口步骤处理器 ==========
@@ -303,6 +308,95 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         context.setEntryTitle(title);
 
         return createEntry();
+    }
+
+    // ========== IMPORT_FLOW 发现入口 ==========
+
+    /**
+     * IMPORT_FLOW discovery handler：外部（同进程 SDK）提供设备的部分识别信息 → 集成自解析后，
+     * <b>跳过 user/device_config/device_mode_config（型号选择）等前置 step</b>，预填 entryData 后直达连接配置区。
+     * <p>payload.data 串格式（version=1）：{@code class|model|sn|name}（name 可选，缺省用默认名）。
+     * <p>例：{@code air.monitor.so2|SMS8200|SO2-SN001|测试SO2设备} → 落地 protocol_select。
+     * <p>core 不解析 data；本集成按 version 自解析 + 自校验 + 自判定（需求 R8/D-2）。
+     *
+     * @param payload import-flow 信封（version + data 串）
+     * @param ctx     流程上下文（= 本 flow 的 context）
+     * @return SHOW_FORM（落地连接配置区）/ ABORT（格式/型号不支持）
+     */
+    private ConfigFlowResult stepDiscoveryImportFlow(ImportFlowPayload payload, FlowContext ctx) {
+        if (payload.getVersion() != 1) {
+            return ConfigFlowResult.abort("不支持的 import data version: " + payload.getVersion()
+                    + "（本集成仅支持 version=1）");
+        }
+        String data = payload.getData();
+        if (data == null || data.isEmpty()) {
+            return ConfigFlowResult.abort("import data 为空（v1 应为 class|model|sn[|name]）");
+        }
+        String[] parts = data.split("\\|", -1);
+        if (parts.length < 3) {
+            return ConfigFlowResult.abort("import data 格式错误（v1 应为 class|model|sn[|name]）: " + data);
+        }
+        String deviceClass = parts[0].trim();
+        String model = parts[1].trim();
+        String sn = parts[2].trim();
+        String name = (parts.length > 3 && !parts[3].trim().isEmpty())
+                ? parts[3].trim() : defaultDeviceName(deviceClass);
+
+        // 校验：class 必须是已知类型、model 必须属于该类型（否则 ABORT，严格模式）
+        Map<String, String> modelOptions = SaimosenIntegration.classToModelMap(deviceClass);
+        if (modelOptions == null || modelOptions.isEmpty()) {
+            return ConfigFlowResult.abort("import data 设备类型不支持: " + deviceClass);
+        }
+        if (!modelOptions.containsKey(model)) {
+            return ConfigFlowResult.abort("import data 型号不属于该设备类型: class=" + deviceClass
+                    + ", model=" + model);
+        }
+
+        // 预填 entryData（等价于 device_config + device_mode_config 收集的结果）
+        ctx.getEntryData().put("class", deviceClass);
+        ctx.getEntryData().put("vendor", VENDOR);
+        ctx.getEntryData().put("model", model);
+        ctx.getEntryData().put("sn", sn);
+        ctx.getEntryData().put("name", name);
+
+        // 按 class 决定落地 step（跳过前置选择步、直达连接配置区）
+        if (QC_CLASS.equals(deviceClass)) {
+            // 质控仪需额外采样管参数 → 落 qc_config
+            return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
+        }
+        if (SAMPLE_TUBE_CLASS.equals(deviceClass)) {
+            // 采样管需长度/内径 → 落 tube_config
+            return showForm("tube_config", createTubeConfigSchema(), new HashMap<>());
+        }
+        // 分析仪 / 校准器 / 稳压电源 → protocol_select（连接配置区第一步）
+        ConfigSchema protocolSchema;
+        String proto = SaimosenIntegration.getProtocolByMode(model);
+        if (SaimosenIntegration.Protocol.MODBUS.name().equals(proto)) {
+            protocolSchema = new ModbusCommTypeSchema().createSchema();
+        } else if (SaimosenIntegration.Protocol.SERIAL.name().equals(proto)) {
+            protocolSchema = new SerialCommConfigSchema().createSchema();
+        } else {
+            return ConfigFlowResult.abort("未知协议: " + proto);
+        }
+        return showForm("protocol_select", protocolSchema, new HashMap<>());
+    }
+
+    /**
+     * 按 class 给出默认设备名（import data 未提供 name 时用）。
+     */
+    private String defaultDeviceName(String deviceClass) {
+        switch (deviceClass) {
+            case "air.monitor.qc": return "Saimosen质控仪";
+            case "air.monitor.calibrator": return "Saimosen动态气体校准仪";
+            case "power.supply.stabilizer": return "Saimosen智能稳压电源";
+            case "sample.tube": return "Saimosen智能采样管";
+            case "air.monitor.pm.qc": return "Saimosen颗粒物零点校验仪";
+            case "air.monitor.o3": return "Saimosen O3 分析仪";
+            case "air.monitor.no2": return "Saimosen NO2 分析仪";
+            case "air.monitor.co": return "Saimosen CO 分析仪";
+            case "air.monitor.so2": return "Saimosen SO2 分析仪";
+            default: return "Saimosen设备";
+        }
     }
 
     // ========== Schema 创建方法 ==========
