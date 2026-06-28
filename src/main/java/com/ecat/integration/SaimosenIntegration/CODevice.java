@@ -26,6 +26,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class CODevice extends SmsDeviceBase {
 
+    private static final String STATUS_PREFIX = "co";
+
     // 数据段配置
     private static final Map<String, DataSegment> SEGMENT_CONFIG = new HashMap<>();
     static {
@@ -274,7 +276,12 @@ public class CODevice extends SmsDeviceBase {
      */
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
                                    SegmentData spanCalibConcentration, SegmentData instrumentCalibStatus) {
-        AttributeStatus baseStatus = mapToAttributeStatus(deviceStatus);
+        AttributeStatus autoStatus = mapToAttributeStatus(deviceStatus);
+        if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
+            autoStatus = AttributeStatus.MALFUNCTION;
+        }
+        AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", null);
+        updateReadonlyStatusAttribute(STATUS_PREFIX + "_status", baseStatus);
                                     
         // 更新float参数（如果数据可用）
         if (floatData != null) {
@@ -789,6 +796,9 @@ public class CODevice extends SmsDeviceBase {
         commandAttr.setModbusSource(modbusSource);
         commandAttr.addDependencyAttribute((NumericAttribute) getAttrs().get("calibration_concentration"));
         setAttribute(commandAttr);
+
+        // 添加手动状态属性
+        addManualStatusAttributes(STATUS_PREFIX);
     }
 
     /**

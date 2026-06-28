@@ -7,6 +7,7 @@ import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -245,10 +246,11 @@ public class SO2DeviceTest {
         assertNotNull("校准浓度属性应该存在", so2Device.getAttrs().get("calibration_concentration"));
         assertNotNull("校准状态属性应该存在", so2Device.getAttrs().get("calibration_status"));
         assertNotNull("校准命令属性应该存在", so2Device.getAttrs().get("dispatch_command"));
-
+        assertNotNull("手动状态属性应该存在", so2Device.getAttrs().get("so2_manual_status"));
+        assertNotNull("只读状态属性应该存在", so2Device.getAttrs().get("so2_status"));
 
         // 验证属性总数
-        assertEquals("应该有40个属性", 40, so2Device.getAttrs().size());
+        assertEquals("应该有42个属性", 42, so2Device.getAttrs().size());
     }
     
     @Test
@@ -535,7 +537,7 @@ public class SO2DeviceTest {
 
         // 1. 初始化
         so2Device.init();
-        assertEquals(40, so2Device.getAttrs().size());
+        assertEquals(42, so2Device.getAttrs().size());
 
         // 2. 启动
         so2Device.start();
@@ -866,11 +868,157 @@ public class SO2DeviceTest {
             // 验证校准相关属性
             TestTools.assertAttributeDisplayName(so2Device, "calibration_concentration", "校准浓度");
             TestTools.assertAttributeDisplayName(so2Device, "calibration_status", "校准状态");
+            TestTools.assertAttributeDisplayName(so2Device, "so2_manual_status", "手动状态");
+            TestTools.assertAttributeDisplayName(so2Device, "so2_status", "SO2状态");
 
         } finally {
             // 恢复i18n功能
             ResourceLoader.setLoadI18nResources(true);
         }
+    }
+
+    // ========== 手动状态功能测试 ==========
+
+    @Test
+    public void testInit_CreatesManualStatusAttributes() throws Exception {
+        so2Device.init();
+
+        assertNotNull(so2Device.getAttrs().get("so2_manual_status"));
+        assertNotNull(so2Device.getAttrs().get("so2_status"));
+        assertTrue(so2Device.getAttrs().get("so2_manual_status") instanceof StringSelectAttribute);
+        assertTrue(so2Device.getAttrs().get("so2_status") instanceof StringSelectAttribute);
+
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+        StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
+    }
+
+    @Test
+    public void testManualStatusPriority_OverDeviceCalibrationStatus() throws Exception {
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+        manualStatusAttr.updateValue(AttributeStatus.MAINTENANCE.getName());
+
+        setupSpanCalibrationReadMocks();
+
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        future.get(5, TimeUnit.SECONDS);
+
+        NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
+        assertEquals(AttributeStatus.MAINTENANCE, so2Attr.getStatus());
+
+        StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
+        assertEquals(AttributeStatus.MAINTENANCE.getName(), statusAttr.getValue());
+    }
+
+    @Test
+    public void testManualStatus_Calibration() throws Exception {
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+        manualStatusAttr.updateValue(AttributeStatus.CALIBRATION.getName());
+
+        setupMeasureModeReadMocks();
+
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        future.get(5, TimeUnit.SECONDS);
+
+        NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
+        assertEquals(AttributeStatus.CALIBRATION, so2Attr.getStatus());
+
+        StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
+        assertEquals(AttributeStatus.CALIBRATION.getName(), statusAttr.getValue());
+    }
+
+    @Test
+    public void testManualStatus_Normal_UsesDeviceCalibrationStatus() throws Exception {
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+        manualStatusAttr.updateValue(AttributeStatus.NORMAL.getName());
+
+        setupSpanCalibrationReadMocks();
+
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        future.get(5, TimeUnit.SECONDS);
+
+        NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
+        assertEquals(AttributeStatus.SPAN_CALIBRATION, so2Attr.getStatus());
+
+        StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
+        assertEquals(AttributeStatus.SPAN_CALIBRATION.getName(), statusAttr.getValue());
+    }
+
+    @Test
+    public void testSO2ManualStatusOptionsI18n() throws Exception {
+        ResourceLoader.setLoadI18nResources(false);
+
+        try {
+            so2Device.init();
+
+            StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+            assertNotNull(manualStatusAttr);
+
+            Map<String, String> optionDict = manualStatusAttr.getOptionDict();
+            assertEquals("自动", optionDict.get(AttributeStatus.NORMAL.getName()));
+            assertEquals("维护", optionDict.get(AttributeStatus.MAINTENANCE.getName()));
+            assertEquals("准确度检查", optionDict.get(AttributeStatus.ACCURACY_CHECK.getName()));
+            assertEquals("维修更换设备", optionDict.get(AttributeStatus.DEVICE_REPLACEMENT.getName()));
+            assertEquals(19, optionDict.size());
+        } finally {
+            ResourceLoader.setLoadI18nResources(true);
+        }
+    }
+
+    private void setupSpanCalibrationReadMocks() {
+        short[] mockFloatRegisters = new short[16];
+        short[] mockU16Registers = new short[26];
+        short[] mockSpanCalibRegisters = new short[] {(short) 400};
+        short[] mockCalibRegisters = new short[] {(short) 2};
+
+        ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockU16Response = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+
+        when(mockFloatResponse.getShortData()).thenReturn(mockFloatRegisters);
+        when(mockU16Response.getShortData()).thenReturn(mockU16Registers);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
+        when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
+
+        when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
+            .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
+    private void setupMeasureModeReadMocks() {
+        short[] mockFloatRegisters = new short[16];
+        short[] mockU16Registers = new short[26];
+        short[] mockSpanCalibRegisters = new short[] {(short) 0};
+        short[] mockCalibRegisters = new short[] {(short) 0};
+
+        ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockU16Response = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+
+        when(mockFloatResponse.getShortData()).thenReturn(mockFloatRegisters);
+        when(mockU16Response.getShortData()).thenReturn(mockU16Registers);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
+        when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
+
+        when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
+            .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
     }
 
 

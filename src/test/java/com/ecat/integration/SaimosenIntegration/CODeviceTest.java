@@ -9,6 +9,7 @@ import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -237,9 +238,11 @@ public class CODeviceTest {
         assertNotNull("校准浓度属性应该存在", coDevice.getAttrs().get("calibration_concentration"));
         assertNotNull("校准状态属性应该存在", coDevice.getAttrs().get("calibration_status"));
         assertNotNull("校准命令属性应该存在", coDevice.getAttrs().get("gas_device_command"));
+        assertNotNull("手动状态属性应该存在", coDevice.getAttrs().get("co_manual_status"));
+        assertNotNull("只读状态属性应该存在", coDevice.getAttrs().get("co_status"));
 
         // 验证属性总数
-        assertEquals("应该有36个属性", 36, coDevice.getAttrs().size());
+        assertEquals("应该有38个属性", 38, coDevice.getAttrs().size());
     }
     
     @Test
@@ -479,7 +482,7 @@ public class CODeviceTest {
         
         // 1. 初始化
         coDevice.init();
-        assertEquals(36, coDevice.getAttrs().size());
+        assertEquals(38, coDevice.getAttrs().size());
         
         // 2. 启动
         coDevice.start();
@@ -1033,5 +1036,20 @@ public class CODeviceTest {
         if (!expected.equals(actual)) {
             throw new AssertionError(message + " expected:<" + expected + "> but was:<" + actual + ">");
         }
+    }
+
+    @Test
+    public void testInit_CreatesManualStatusAttributes() throws Exception {
+        coDevice.init();
+
+        assertNotNull(coDevice.getAttrs().get("co_manual_status"));
+        assertNotNull(coDevice.getAttrs().get("co_status"));
+        assertTrue(coDevice.getAttrs().get("co_manual_status") instanceof StringSelectAttribute);
+        assertTrue(coDevice.getAttrs().get("co_status") instanceof StringSelectAttribute);
+
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) coDevice.getAttrs().get("co_manual_status");
+        StringSelectAttribute statusAttr = (StringSelectAttribute) coDevice.getAttrs().get("co_status");
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
     }
 }
