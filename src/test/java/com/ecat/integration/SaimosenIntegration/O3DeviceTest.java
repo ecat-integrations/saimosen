@@ -7,6 +7,7 @@ import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -218,10 +219,11 @@ public class O3DeviceTest {
         assertNotNull("机箱风扇状态属性应该存在", o3Device.getAttrs().get("case_fan_status"));
         assertNotNull("报警信息属性应该存在", o3Device.getAttrs().get("alarm_info"));
         assertNotNull("故障代码属性应该存在", o3Device.getAttrs().get("fault_code"));
-
+        assertNotNull("手动状态属性应该存在", o3Device.getAttrs().get("o3_manual_status"));
+        assertNotNull("只读状态属性应该存在", o3Device.getAttrs().get("o3_status"));
 
         // 验证属性总数
-        assertEquals("应该有41个属性", 41, o3Device.getAttrs().size());
+        assertEquals("应该有43个属性", 43, o3Device.getAttrs().size());
     }
     
     @Test
@@ -475,7 +477,7 @@ public class O3DeviceTest {
         
         // 1. 初始化
         o3Device.init();
-        assertEquals(41, o3Device.getAttrs().size());
+        assertEquals(43, o3Device.getAttrs().size());
         
         // 2. 启动
         o3Device.start();
@@ -973,11 +975,28 @@ public class O3DeviceTest {
             // 验证校准相关属性
             TestTools.assertAttributeDisplayName(o3Device, "calibration_concentration", "校准浓度");
             TestTools.assertAttributeDisplayName(o3Device, "calibration_status", "校准状态");
+            TestTools.assertAttributeDisplayName(o3Device, "o3_manual_status", "手动状态");
+            TestTools.assertAttributeDisplayName(o3Device, "o3_status", "O3状态");
 
         } finally {
             // 恢复i18n功能
             ResourceLoader.setLoadI18nResources(true);
         }
+    }
+
+    @Test
+    public void testInit_CreatesManualStatusAttributes() throws Exception {
+        o3Device.init();
+
+        assertNotNull(o3Device.getAttrs().get("o3_manual_status"));
+        assertNotNull(o3Device.getAttrs().get("o3_status"));
+        assertTrue(o3Device.getAttrs().get("o3_manual_status") instanceof StringSelectAttribute);
+        assertTrue(o3Device.getAttrs().get("o3_status") instanceof StringSelectAttribute);
+
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) o3Device.getAttrs().get("o3_manual_status");
+        StringSelectAttribute statusAttr = (StringSelectAttribute) o3Device.getAttrs().get("o3_status");
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
     }
 
 

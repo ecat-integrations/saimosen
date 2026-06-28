@@ -7,6 +7,7 @@ import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -170,8 +171,8 @@ public class NO2DeviceTest {
         // 执行初始化
         no2Device.init();
         
-        // 验证属性总数：实际创建了57个属性
-        assertEquals(57, no2Device.getAttrs().size());
+        // 验证属性总数：实际创建了59个属性
+        assertEquals(59, no2Device.getAttrs().size());
         
         // 验证NO浓度相关属性
         assertNotNull(no2Device.getAttrs().get("no"));
@@ -706,5 +707,20 @@ public class NO2DeviceTest {
         if (!expected.equals(actual)) {
             throw new AssertionError(message + " expected:<" + expected + "> but was:<" + actual + ">");
         }
+    }
+
+    @Test
+    public void testInit_CreatesManualStatusAttributes() throws Exception {
+        no2Device.init();
+
+        assertNotNull(no2Device.getAttrs().get("nox_manual_status"));
+        assertNotNull(no2Device.getAttrs().get("nox_status"));
+        assertTrue(no2Device.getAttrs().get("nox_manual_status") instanceof StringSelectAttribute);
+        assertTrue(no2Device.getAttrs().get("nox_status") instanceof StringSelectAttribute);
+
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) no2Device.getAttrs().get("nox_manual_status");
+        StringSelectAttribute statusAttr = (StringSelectAttribute) no2Device.getAttrs().get("nox_status");
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
     }
 } 

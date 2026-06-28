@@ -31,6 +31,8 @@ import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter
  */
 public class NO2Device extends SmsDeviceBase {
 
+    private static final String STATUS_PREFIX = "nox";
+
     // 数据段配置
     private static final Map<String, DataSegment> SEGMENT_CONFIG = new HashMap<>();
     static {
@@ -322,6 +324,9 @@ public class NO2Device extends SmsDeviceBase {
         commandAttr.addDependencyAttribute((NumericAttribute) getAttrs().get("calibration_concentration"));
         commandAttr.setDeviceInstance(this); // 设置设备引用，用于防止竞态条件
         setAttribute(commandAttr);
+
+        // 添加手动状态属性（NO、NO2、NOX 共享状态）
+        addManualStatusAttributes(STATUS_PREFIX);
     }
 
     /**
@@ -521,8 +526,12 @@ public class NO2Device extends SmsDeviceBase {
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
                                    SegmentData spanCalibConcentration, SegmentData instrumentCalibStatus) {
         
-        // 根据设备状态映射属性状态
-        AttributeStatus baseStatus = mapToAttributeStatus(deviceStatus);
+        AttributeStatus autoStatus = mapToAttributeStatus(deviceStatus);
+        if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
+            autoStatus = AttributeStatus.MALFUNCTION;
+        }
+        AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", null);
+        updateReadonlyStatusAttribute(STATUS_PREFIX + "_status", baseStatus);
         
         // 更新float属性（如果数据可用）
         if (floatData != null) {
