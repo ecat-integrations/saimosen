@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.Task.TaskManager;
@@ -73,7 +74,7 @@ public class SmartPowerStabilizerTest {
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
     }
     
@@ -281,17 +282,17 @@ public class SmartPowerStabilizerTest {
         // 验证电压属性值（以第一路为例）
         ModbusScalableFloatSRAttribute voltageL1 =
                 (ModbusScalableFloatSRAttribute) stabilizer.getAttrs().get("voltage_l1");
-        assertEquals(219.3f, voltageL1.getValue(), 0.01f); // 0x0172 = 370, 370/10 = 37.0V
+        assertEquals(219.3f, (Float) voltageL1.getState().getValue(), 0.01f); // 0x0172 = 370, 370/10 = 37.0V
 
         // 验证电流属性值（以第一路为例）
         ModbusScalableFloatSRAttribute currentL1 =
                 (ModbusScalableFloatSRAttribute) stabilizer.getAttrs().get("current_l1");
-        assertEquals(2.75f, currentL1.getValue(), 0.01f); // 0x0000 = 0, 0/100 = 0.0A
+        assertEquals(2.75f, (Float) currentL1.getState().getValue(), 0.01f); // 0x0000 = 0, 0/100 = 0.0A
 
         // 验证继电器状态（以第一路为例）
         ModbusScalableFloatSRAttribute relayL1 =
                 (ModbusScalableFloatSRAttribute) stabilizer.getAttrs().get("relay_l1");
-        assertEquals(1.0f, relayL1.getValue(), 0.01f); // 0x0001 = 1，合闸状态
+        assertEquals(1.0f, (Float) relayL1.getState().getValue(), 0.01f); // 0x0001 = 1，合闸状态
     }
     
     // @Test
@@ -326,7 +327,7 @@ public class SmartPowerStabilizerTest {
         invokePrivateMethod(stabilizer, "updateScalableAttribute", "voltage_l1", word1, AttributeStatus.NORMAL);
         
         // 验证属性值和状态
-        assertEquals(0.1f, attr.getValue(), 0.01f);
+        assertEquals(0.1f, (Float) attr.getState().getValue(), 0.01f);
         assertEquals(AttributeStatus.NORMAL, (AttributeStatus)getPrivateField(attr, "status"));
     }
 

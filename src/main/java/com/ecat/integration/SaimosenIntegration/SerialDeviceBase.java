@@ -160,8 +160,9 @@ public abstract class SerialDeviceBase extends DeviceBase {
         // 第一步：检查 manual_status（第一优先级）
         if (manualStatusAttrId != null) {
             AttributeBase<?> manualStatusAttr = getAttrs().get(manualStatusAttrId);
-            if (manualStatusAttr != null && manualStatusAttr.getValue() != null) {
-                String manualStatusValue = (String) manualStatusAttr.getValue();
+            // 从不可变 state 读，getValue 已封装为 protected
+            if (manualStatusAttr != null && manualStatusAttr.getState() != null && manualStatusAttr.getState().getValue() != null) {
+                String manualStatusValue = (String) manualStatusAttr.getState().getValue();
                 AttributeStatus manualStatus = AttributeStatus.getEnum(manualStatusValue);
                 if (manualStatus != null && manualStatus != AttributeStatus.NORMAL) {
                     status = manualStatus;
@@ -186,8 +187,9 @@ public abstract class SerialDeviceBase extends DeviceBase {
         // 第一步：检查 manual_status（第一优先级）
         if (manualStatusAttrId != null) {
             AttributeBase<?> manualStatusAttr = getAttrs().get(manualStatusAttrId);
-            if (manualStatusAttr != null && manualStatusAttr.getValue() != null) {
-                String manualStatusValue = (String) manualStatusAttr.getValue();
+            // 从不可变 state 读，getValue 已封装为 protected
+            if (manualStatusAttr != null && manualStatusAttr.getState() != null && manualStatusAttr.getState().getValue() != null) {
+                String manualStatusValue = (String) manualStatusAttr.getState().getValue();
                 AttributeStatus manualStatus = AttributeStatus.getEnum(manualStatusValue);
                 if (manualStatus != null && manualStatus != AttributeStatus.NORMAL) {
                     status = manualStatus;

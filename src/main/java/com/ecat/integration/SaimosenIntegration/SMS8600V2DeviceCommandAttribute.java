@@ -108,13 +108,14 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("零点校准执行异常,流量属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(calibration_flow_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(calibration_flow_config.getState() == null || calibration_flow_config.getState().getValue() == null){
                         log.error("零点校准执行异常,未配置校准流量！");
                         return CompletableFuture.completedFuture(false);
                     }
                 }
                 // 成功
-                double value = ((NumericAttribute) calibration_flow_config).getValue();
+                double value = ((Number) calibration_flow_config.getState().getValue()).doubleValue();
                 cmdToSend = config.cmdTemplate.replace("{flow}", String.format("%04d", (int) value));
                 log.info("零点校准执行成功,校准流量:{}", value);
                 break;
@@ -124,7 +125,8 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("跨度校准执行异常,流量属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(span_calibration_flow_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(span_calibration_flow_config.getState() == null || span_calibration_flow_config.getState().getValue() == null){
                         log.error("跨度校准执行异常,未配置校准流量！");
                         return CompletableFuture.completedFuture(false);
                     }
@@ -134,7 +136,8 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("跨度校准执行异常,气体属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(calibration_gas_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(calibration_gas_config.getState() == null || calibration_gas_config.getState().getValue() == null){
                         log.error("跨度校准执行异常,未配置校准气体！");
                         return CompletableFuture.completedFuture(false);
                     }
@@ -144,7 +147,8 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("跨度校准执行异常,浓度属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(calibration_concentration_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(calibration_concentration_config.getState() == null || calibration_concentration_config.getState().getValue() == null){
                         log.error("跨度校准执行异常,未配置校准浓度！");
                         return CompletableFuture.completedFuture(false);
                     }
@@ -154,15 +158,16 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("跨度校准执行异常,校准单位属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(calibration_concentration_unit_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(calibration_concentration_unit_config.getState() == null || calibration_concentration_unit_config.getState().getValue() == null){
                         log.error("跨度校准执行异常,未配置校准单位！");
                         return CompletableFuture.completedFuture(false);
                     }
                 }
-                double flow_value = ((NumericAttribute) span_calibration_flow_config).getValue();
-                String gas = ((StringSelectAttribute) calibration_gas_config).getValue();
-                double concentration_value = ((NumericAttribute) calibration_concentration_config).getValue();
-                String concentration_unit = ((StringSelectAttribute) calibration_concentration_unit_config).getValue();
+                double flow_value = ((Number) span_calibration_flow_config.getState().getValue()).doubleValue();
+                String gas = (String) calibration_gas_config.getState().getValue();
+                double concentration_value = ((Number) calibration_concentration_config.getState().getValue()).doubleValue();
+                String concentration_unit = (String) calibration_concentration_unit_config.getState().getValue();
                 cmdToSend = config.cmdTemplate.replace("{flow}", String.format("%04d", (int) flow_value))
                         .replace("{gas}", gas)
                         .replace("{concentration}", String.format("%03d", (int) concentration_value))
@@ -175,7 +180,8 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("gpt校准执行异常,流量属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(gpt_calibration_flow_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(gpt_calibration_flow_config.getState() == null || gpt_calibration_flow_config.getState().getValue() == null){
                         log.error("gpt校准执行异常,未配置校准流量！");
                         // 抛出
                         return CompletableFuture.completedFuture(false);
@@ -186,7 +192,8 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("gpt校准执行异常,no浓度属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(calibration_gpt_no_concentration_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(calibration_gpt_no_concentration_config.getState() == null || calibration_gpt_no_concentration_config.getState().getValue() == null){
                         log.error("gpt校准执行异常,no未配置校准浓度！");
                         return CompletableFuture.completedFuture(false);
                     }
@@ -196,14 +203,15 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                     log.error("gpt校准执行异常,o3浓度属性对象错误！");
                     return CompletableFuture.completedFuture(false);
                 }else{
-                    if(calibration_gpt_o3_concentration_config.getValue() == null){
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if(calibration_gpt_o3_concentration_config.getState() == null || calibration_gpt_o3_concentration_config.getState().getValue() == null){
                         log.error("gpt校准执行异常,o3浓度未配置校准浓度！");
                         return CompletableFuture.completedFuture(false);
                     }
                 }
-                double gpt_flow_value = ((NumericAttribute) gpt_calibration_flow_config).getValue();
-                double gpt_no_concentration_value = ((NumericAttribute) calibration_gpt_no_concentration_config).getValue();
-                double gpt_o3_concentration_value = ((NumericAttribute) calibration_gpt_o3_concentration_config).getValue();
+                double gpt_flow_value = ((Number) gpt_calibration_flow_config.getState().getValue()).doubleValue();
+                double gpt_no_concentration_value = ((Number) calibration_gpt_no_concentration_config.getState().getValue()).doubleValue();
+                double gpt_o3_concentration_value = ((Number) calibration_gpt_o3_concentration_config.getState().getValue()).doubleValue();
                 cmdToSend = config.cmdTemplate.replace("{flow}", String.format("%04d", (int) gpt_flow_value))
                         .replace("{no_concentration}", String.format("%03d", (int) gpt_no_concentration_value))
                         .replace("{o3_concentration}", String.format("%03d", (int) gpt_o3_concentration_value));

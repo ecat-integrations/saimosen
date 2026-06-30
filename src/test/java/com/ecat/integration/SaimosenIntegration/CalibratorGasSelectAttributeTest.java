@@ -1,6 +1,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -108,9 +109,13 @@ public class CalibratorGasSelectAttributeTest {
 
     @Test
     public void testUpdateValue() {
+        // 绑定 mock 设备（getId() 非 null）使 updateValue 能构建不可变 lastState（B5/B9 重构后 getState() 依赖 deviceId）
+        DeviceBase mockDevice = mock(DeviceBase.class);
+        when(mockDevice.getId()).thenReturn("test-calibrator-gas-device");
+        attr.setDevice(mockDevice);
         // 测试short转字符串
         assertTrue(attr.updateValue((short) 0x01)); // SO2
-        assertEquals("SO2", attr.getValue());
+        assertEquals("SO2", (String) (attr.getState() != null ? attr.getState().getValue() : null));
         assertFalse(attr.updateValue((short) 0x7F)); // 未知
     }
 

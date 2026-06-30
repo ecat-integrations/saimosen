@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
@@ -94,7 +95,7 @@ public class ParticulateZeroCheckerTest {
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
     }
 

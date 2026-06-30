@@ -4,7 +4,9 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
+import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.Task.TaskManager;
@@ -79,7 +81,7 @@ public class QCDeviceTest {
         when(mockTaskManager.getExecutorService()).thenReturn(realExecutor); // 使用真实executor
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
 
         device.init();
@@ -357,60 +359,68 @@ public class QCDeviceTest {
 
         invokePrivateMethod(device, "readRegisters");
 
-        // 等待异步操作完成（最多等待2秒，每100ms检查一次）
+        // readRegisters 异步解析两块响应、逐属性 updateValue 建不可变 AttrState；各属性 state 就绪时序不同。
+        // 必须等到全部 12 个待断言属性 state 都就绪，否则 getState() 为 null 会致断言 NPE（此前只等
+        // so2_film 一个属性，其余属性 state 可能尚未构建，导致约 30% 概率 flake）。最多等 2 秒，每 50ms 复检。
         waitForAsyncOperation(() -> {
-            ModbusShortAttribute so2_film = (ModbusShortAttribute) device.getAttrs().get("so2_film_changer_status");
-            return so2_film != null && so2_film.getValue() != null;
+            String[] ids = {"bench_temp", "system_state", "station_ua", "so2_film_changer_status",
+                    "o3_film_changer_status", "so2_gas_temp", "o3_gas_temp", "sampling_tube_residence_time",
+                    "heating_temp", "fan_power", "pm10_std_flow", "pm2_5_working_flow"};
+            for (String id : ids) {
+                AttributeBase<?> a = device.getAttrs().get(id);
+                if (a == null || a.getState() == null || a.getState().getValue() == null) return false;
+            }
+            return true;
         }, 2000);
 
         // 断言部分属性已被正确解析
         ModbusFloatAttribute benchTemp = (ModbusFloatAttribute) device.getAttrs().get("bench_temp");
         assertNotNull(benchTemp);
-        assertEquals(25.6f, benchTemp.getValue(), 0.1f);
+        assertEquals(25.6f, (Float) benchTemp.getState().getValue(), 0.1f);
 
         ModbusShortAttribute systemState = (ModbusShortAttribute) device.getAttrs().get("system_state");
         assertNotNull(systemState);
-        assertEquals(0, (int) systemState.getValue());
+        assertEquals(0, ((Number) systemState.getState().getValue()).intValue());
 
         ModbusFloatAttribute stationUa = (ModbusFloatAttribute) device.getAttrs().get("station_ua");
         assertNotNull(stationUa);
-        assertEquals(229.1f, stationUa.getValue(), 0.1f);
+        assertEquals(229.1f, (Float) stationUa.getState().getValue(), 0.1f);
 
         ModbusShortAttribute so2_film = (ModbusShortAttribute) device.getAttrs().get("so2_film_changer_status");
         assertNotNull(so2_film);
-        assertEquals(290, (int) so2_film.getValue());
+        assertEquals(290, ((Number) so2_film.getState().getValue()).intValue());
 
         ModbusShortAttribute o3_film = (ModbusShortAttribute) device.getAttrs().get("o3_film_changer_status");
         assertNotNull(o3_film);
-        assertEquals(290, (int) o3_film.getValue());
+        assertEquals(290, ((Number) o3_film.getState().getValue()).intValue());
 
         ModbusFloatAttribute so2temp = (ModbusFloatAttribute) device.getAttrs().get("so2_gas_temp");
         assertNotNull(so2temp);
-        assertEquals(23.5f, so2temp.getValue(), 0.1f);
+        assertEquals(23.5f, (Float) so2temp.getState().getValue(), 0.1f);
 
         ModbusFloatAttribute o3temp = (ModbusFloatAttribute) device.getAttrs().get("o3_gas_temp");
         assertNotNull(o3temp);
-        assertEquals(22.9f, o3temp.getValue(), 0.1f);
+        assertEquals(22.9f, (Float) o3temp.getState().getValue(), 0.1f);
 
         NumericAttribute tubeResidenceTime = (NumericAttribute) device.getAttrs().get("sampling_tube_residence_time");
         assertNotNull(tubeResidenceTime);
-        assertEquals(3.461f, tubeResidenceTime.getValue(), 0.1f);
+        assertEquals(3.461f, ((Number) tubeResidenceTime.getState().getValue()).floatValue(), 0.1f);
 
         ModbusScalableFloatSRAttribute heating_temp = (ModbusScalableFloatSRAttribute) device.getAttrs().get("heating_temp");
         assertNotNull(heating_temp);
-        assertEquals(35.6f, heating_temp.getValue(), 0.1f);
+        assertEquals(35.6f, (Float) heating_temp.getState().getValue(), 0.1f);
 
         ModbusScalableFloatSRAttribute fan_power = (ModbusScalableFloatSRAttribute) device.getAttrs().get("fan_power");
         assertNotNull(fan_power);
-        assertEquals(1.5f, fan_power.getValue(), 0.1f);
+        assertEquals(1.5f, (Float) fan_power.getState().getValue(), 0.1f);
 
         ModbusFloatAttribute pm10StdFlow = (ModbusFloatAttribute) device.getAttrs().get("pm10_std_flow");
         assertNotNull(pm10StdFlow);
-        assertEquals(16.28f, pm10StdFlow.getValue(), 0.1f);
+        assertEquals(16.28f, (Float) pm10StdFlow.getState().getValue(), 0.1f);
 
         ModbusFloatAttribute pm25WorkFlow = (ModbusFloatAttribute) device.getAttrs().get("pm2_5_working_flow");
         assertNotNull(pm25WorkFlow);
-        assertEquals(16.43f, pm25WorkFlow.getValue(), 0.1f);
+        assertEquals(16.43f, (Float) pm25WorkFlow.getState().getValue(), 0.1f);
         assertEquals("16.44", pm25WorkFlow.getDisplayValue());
 
     }

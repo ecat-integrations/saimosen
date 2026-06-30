@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -68,7 +69,7 @@ public class O3DeviceTest {
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
         
         // 模拟IntegrationRegistry
@@ -183,7 +184,7 @@ public class O3DeviceTest {
     private void verifyFloatAttribute(String attrId, double expectedValue) {
         NumericAttribute attr = (NumericAttribute) o3Device.getAttrs().get(attrId);
         assertNotNull(attr);
-        assertEquals(expectedValue, attr.getValue(), 0.01); // 精度误差±0.01
+        assertEquals(expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
     }
     
     @Test
@@ -385,9 +386,9 @@ public class O3DeviceTest {
         verifyFloatAttribute("alarm_info", 0.0);
         verifyFloatAttribute("fault_code", 0.0);
         
-        // 验证所有属性状态为正常
-        o3Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.NORMAL, attr.getStatus());
+        // 验证所有数据更新过的属性状态为正常（重构后未更新的属性 state 为 null，不在校验范围）
+        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.NORMAL, attr.getState().getStatus());
         });
     }
     
@@ -406,13 +407,12 @@ public class O3DeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        o3Device.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
-    
+
     @Test
     public void testReadAndUpdate_HandlesDataParsingException() throws Exception {
         // 准备无效的寄存器数据 - 使用null来触发异常
@@ -429,13 +429,12 @@ public class O3DeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        o3Device.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
-    
+
     @Test
     public void testSegmentConfiguration() throws Exception {
         // 验证数据段配置是否正确
@@ -467,8 +466,8 @@ public class O3DeviceTest {
 
         // 验证属性值已更新
         NumericAttribute o3Attr = (NumericAttribute) o3Device.getAttrs().get("o3");
-        assertEquals(25.5, o3Attr.getValue(), 0.01);
-        assertEquals(AttributeStatus.NORMAL, o3Attr.getStatus());
+        assertEquals(25.5, ((Number) o3Attr.getState().getValue()).doubleValue(), 0.01);
+        assertEquals(AttributeStatus.NORMAL, o3Attr.getState() != null ? o3Attr.getState().getStatus() : null);
     }
     
     @Test
@@ -586,9 +585,9 @@ public class O3DeviceTest {
         // 验证结果
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        o3Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
     
@@ -623,9 +622,9 @@ public class O3DeviceTest {
         // 验证结果
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        o3Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
     
@@ -838,33 +837,33 @@ public class O3DeviceTest {
         // 验证float数据解析
         NumericAttribute o3Attr = (NumericAttribute) o3Device.getAttrs().get("o3");
         assertNotNull("O3属性不应为null", o3Attr);
-        assertNotNull("O3值不应为null", o3Attr.getValue());
+        assertNotNull("O3值不应为null", o3Attr.getState() != null ? o3Attr.getState().getValue() : null);
 
         // 验证U16数据解析 - 主要验证数据能够被正确解析，而不是验证具体数值
         NumericAttribute deviceAddrAttr = (NumericAttribute) o3Device.getAttrs().get("device_address");
         assertNotNull("DEVICE_ADDRESS属性不应为null", deviceAddrAttr);
-        assertNotNull("DEVICE_ADDRESS值不应为null", deviceAddrAttr.getValue());
+        assertNotNull("DEVICE_ADDRESS值不应为null", deviceAddrAttr.getState() != null ? deviceAddrAttr.getState().getValue() : null);
 
         NumericAttribute deviceStatusAttr = (NumericAttribute) o3Device.getAttrs().get("device_status");
         assertNotNull("DEVICE_STATUS属性不应为null", deviceStatusAttr);
-        assertNotNull("DEVICE_STATUS值不应为null", deviceStatusAttr.getValue());
+        assertNotNull("DEVICE_STATUS值不应为null", deviceStatusAttr.getState() != null ? deviceStatusAttr.getState().getValue() : null);
 
         NumericAttribute uvAmpAttr = (NumericAttribute) o3Device.getAttrs().get("uv_amplification");
         assertNotNull("UV_AMPLIFICATION属性不应为null", uvAmpAttr);
-        assertNotNull("UV_AMPLIFICATION值不应为null", uvAmpAttr.getValue());
+        assertNotNull("UV_AMPLIFICATION值不应为null", uvAmpAttr.getState() != null ? uvAmpAttr.getState().getValue() : null);
 
         NumericAttribute sampleTempVoltAttr = (NumericAttribute) o3Device.getAttrs().get("sample_temp_volt");
         assertNotNull("SAMPLE_TEMP_VOLT属性不应为null", sampleTempVoltAttr);
-        assertNotNull("SAMPLE_TEMP_VOLT值不应为null", sampleTempVoltAttr.getValue());
+        assertNotNull("SAMPLE_TEMP_VOLT值不应为null", sampleTempVoltAttr.getState() != null ? sampleTempVoltAttr.getState().getValue() : null);
 
         // 验证校准数据
         NumericAttribute calibConcAttr = (NumericAttribute) o3Device.getAttrs().get("calibration_concentration");
         assertNotNull("CALIBRATION_CONCENTRATION属性不应为null", calibConcAttr);
-        assertNotNull("CALIBRATION_CONCENTRATION值不应为null", calibConcAttr.getValue());
+        assertNotNull("CALIBRATION_CONCENTRATION值不应为null", calibConcAttr.getState() != null ? calibConcAttr.getState().getValue() : null);
 
         NumericAttribute calibStatusAttr = (NumericAttribute) o3Device.getAttrs().get("calibration_status");
         assertNotNull("CALIBRATION_STATUS属性不应为null", calibStatusAttr);
-        assertNotNull("CALIBRATION_STATUS值不应为null", calibStatusAttr.getValue());
+        assertNotNull("CALIBRATION_STATUS值不应为null", calibStatusAttr.getState() != null ? calibStatusAttr.getState().getValue() : null);
         
         // 验证所有Modbus调用都被正确执行
         verify(mockModbusSource, times(1)).readHoldingRegisters(eq(0), eq(40));
@@ -873,7 +872,7 @@ public class O3DeviceTest {
         verify(mockModbusSource, times(1)).readHoldingRegisters(eq(0x3EE), eq(1));
         
         System.out.println("O3Device真实数据解析测试通过！");
-        System.out.println("   - Float数据解析: " + (o3Attr.getValue() != null ? "成功" : "失败"));
+        System.out.println("   - Float数据解析: " + (o3Attr.getState() != null && o3Attr.getState().getValue() != null ? "成功" : "失败"));
         System.out.println("   - U16数据解析: 设备地址、状态、电压值正确解析");
         System.out.println("   - 校准数据解析: 校准浓度和状态正确解析");
     }
