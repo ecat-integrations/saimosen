@@ -22,6 +22,7 @@ import org.mockito.MockitoAnnotations;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
@@ -215,7 +216,7 @@ public class SampleTubeTest {
         when(mockModbusSource.acquire()).thenReturn("testKey");
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockCore.getBusRegistry()).thenReturn(mockBusRegistry);
 
         sampleTube.load(mockCore);

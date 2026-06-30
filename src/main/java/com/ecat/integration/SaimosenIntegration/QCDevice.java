@@ -10,6 +10,7 @@ import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
+import com.ecat.core.State.AttrState;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.Unit.AirMassUnit;
 import com.ecat.core.State.Unit.AirVolumeUnit;
@@ -701,7 +702,9 @@ public class QCDevice extends SmsDeviceBase {
         ModbusFloatAttribute samplingTubeFlowAttr = (ModbusFloatAttribute) getAttrs().get("sample_tube_flow");
         if (samplingTubeFlowAttr != null) {
             Double residenceTime = 999.0; // 默认值
-            Float samplingTubeFlow = samplingTubeFlowAttr.getValue();
+            // 从不可变 state 读，getValue 已封装为 protected
+            AttrState samplingTubeFlowState = samplingTubeFlowAttr.getState();
+            Float samplingTubeFlow = samplingTubeFlowState != null ? (Float) samplingTubeFlowState.getValue() : null;
             if( samplingTubeFlow == null || samplingTubeFlow <= 0) {
                 log.warn("采样管流量为0或null，无效，无法计算滞留时间，设置为极大的默认值");
             }
@@ -714,14 +717,23 @@ public class QCDevice extends SmsDeviceBase {
         }
 
         // TODO: 这里的流量是一个手动标定的转换系数，实际应用中需要根据具体情况调整，后面要优化
+        // 从不可变 state 读，getValue 已封装为 protected；state 为 null 时跳过标定避免 NPE
         ModbusFloatAttribute pm10StdFlowAttr = (ModbusFloatAttribute) getAttrs().get("pm10_std_flow");
-        pm10StdFlowAttr.updateValue(pm10StdFlowAttr.getValue() * 1.021f);
+        if (pm10StdFlowAttr.getState() != null) {
+            pm10StdFlowAttr.updateValue((Float) pm10StdFlowAttr.getState().getValue() * 1.021f);
+        }
         ModbusFloatAttribute pm10WorkingFlowAttr = (ModbusFloatAttribute) getAttrs().get("pm10_working_flow");
-        pm10WorkingFlowAttr.updateValue(pm10WorkingFlowAttr.getValue() * 1.021f);
+        if (pm10WorkingFlowAttr.getState() != null) {
+            pm10WorkingFlowAttr.updateValue((Float) pm10WorkingFlowAttr.getState().getValue() * 1.021f);
+        }
         ModbusFloatAttribute pm2_5StdFlowAttr = (ModbusFloatAttribute) getAttrs().get("pm2_5_std_flow");
-        pm2_5StdFlowAttr.updateValue(pm2_5StdFlowAttr.getValue() * 0.997f);
+        if (pm2_5StdFlowAttr.getState() != null) {
+            pm2_5StdFlowAttr.updateValue((Float) pm2_5StdFlowAttr.getState().getValue() * 0.997f);
+        }
         ModbusFloatAttribute pm2_5WorkingFlowAttr = (ModbusFloatAttribute) getAttrs().get("pm2_5_working_flow");
-        pm2_5WorkingFlowAttr.updateValue(pm2_5WorkingFlowAttr.getValue() * 0.997f);
+        if (pm2_5WorkingFlowAttr.getState() != null) {
+            pm2_5WorkingFlowAttr.updateValue((Float) pm2_5WorkingFlowAttr.getState().getValue() * 0.997f);
+        }
 
     }
 

@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -122,7 +123,7 @@ public class SMS8600V2DeviceTest {
         });
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
         
         // 创建真实的 ByteArrayOutputStream 并设置到 context
@@ -417,7 +418,7 @@ public class SMS8600V2DeviceTest {
 
         AQAttribute o3Attr = (AQAttribute) sms8600v2Device.getAttrs().get("o3");
         assertNotNull("o3属性不应该为空", o3Attr);
-        assertEquals("o3浓度值应该为500.0", 500.0, o3Attr.getValue(), 0.01);
+        assertEquals("o3浓度值应该为500.0", 500.0, ((Number) o3Attr.getState().getValue()).doubleValue(), 0.01);
     }
 
     /**
@@ -450,9 +451,9 @@ public class SMS8600V2DeviceTest {
         assertTrue("实时数据处理应该成功", result);
         AQAttribute o3Attr = (AQAttribute) sms8600v2Device.getAttrs().get("o3");
         assertNotNull("o3属性不应该为空", o3Attr);
-        assertEquals("o3浓度值应该为500.0", 500.0, o3Attr.getValue(), 0.01);
+        assertEquals("o3浓度值应该为500.0", 500.0, ((Number) o3Attr.getState().getValue()).doubleValue(), 0.01);
         // determineDataStatus 会检查 work_status 属性，由于没有设置手动状态，默认返回 CALIBRATION
-        assertEquals("o3状态应该为CALIBRATION", AttributeStatus.CALIBRATION, o3Attr.getStatus());
+        assertEquals("o3状态应该为CALIBRATION", AttributeStatus.CALIBRATION, o3Attr.getState() != null ? o3Attr.getState().getStatus() : null);
     }
 
     /**
@@ -477,8 +478,8 @@ public class SMS8600V2DeviceTest {
 
         assertTrue("实时数据处理应该成功", result);
         AQAttribute o3Attr = (AQAttribute) sms8600v2Device.getAttrs().get("o3");
-        assertEquals("o3浓度值应该为350.5", 350.5, o3Attr.getValue(), 0.01);
-        assertEquals("o3状态应该为NORMAL", AttributeStatus.NORMAL, o3Attr.getStatus());
+        assertEquals("o3浓度值应该为350.5", 350.5, ((Number) o3Attr.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("o3状态应该为NORMAL", AttributeStatus.NORMAL, o3Attr.getState() != null ? o3Attr.getState().getStatus() : null);
     }
 
     /**
@@ -511,9 +512,9 @@ public class SMS8600V2DeviceTest {
         assertTrue("分钟数据处理应该成功", result);
         AQAttribute o3MinuteAttr = (AQAttribute) sms8600v2Device.getAttrs().get("o3_minute");
         assertNotNull("o3_minute属性不应该为空", o3MinuteAttr);
-        assertEquals("o3_minute浓度值应该为450.5", 450.5, o3MinuteAttr.getValue(), 0.01);
+        assertEquals("o3_minute浓度值应该为450.5", 450.5, ((Number) o3MinuteAttr.getState().getValue()).doubleValue(), 0.01);
         // 注意：分钟数据使用getDataStatus方法，只检查手动状态，不检查数据前缀，所以默认为NORMAL
-        assertEquals("o3_minute状态应该为NORMAL", AttributeStatus.NORMAL, o3MinuteAttr.getStatus());
+        assertEquals("o3_minute状态应该为NORMAL", AttributeStatus.NORMAL, o3MinuteAttr.getState() != null ? o3MinuteAttr.getState().getStatus() : null);
     }
 
     // ==================== 状态数据解析测试 ====================
@@ -564,18 +565,18 @@ public class SMS8600V2DeviceTest {
         TextAttribute alarmCode = (TextAttribute) sms8600v2Device.getAttrs().get("alarm_code");
         StringSelectAttribute workStatus = (StringSelectAttribute) sms8600v2Device.getAttrs().get("work_status");
 
-        assertEquals("pmt_v应该为3000.0", 3000.0, pmtV.getValue(), 0.01);
-        assertEquals("canbi_v应该为3001.0", 3001.0, canbiV.getValue(), 0.01);
-        assertEquals("power_component应该为2500.0", 2500.0, powerComponent.getValue(), 0.01);
-        assertEquals("photometer_press应该为101.3", 101.3, photometerPress.getValue(), 0.01);
-        assertEquals("photometer_flow应该为500.0", 500.0, photometerFlow.getValue(), 0.01);
-        assertEquals("photometer_temp应该为25.0", 25.0, photometerTemp.getValue(), 0.01);
-        assertEquals("case_temp应该为26.0", 26.0, caseTemp.getValue(), 0.01);
-        assertEquals("slope应该为1.0", 1.0, slope.getValue(), 0.00001);
-        assertEquals("intercept应该为0.0", 0.0, intercept.getValue(), 0.001);
-        assertEquals("alarm_code应该为0000", "0000", alarmCode.getValue());
-        assertEquals("work_status值应该为Normal", AttributeStatus.NORMAL.getName(), workStatus.getValue());
-        assertEquals("work_status状态应该为NORMAL", AttributeStatus.NORMAL, workStatus.getStatus());
+        assertEquals("pmt_v应该为3000.0", 3000.0, ((Number) pmtV.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("canbi_v应该为3001.0", 3001.0, ((Number) canbiV.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("power_component应该为2500.0", 2500.0, ((Number) powerComponent.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("photometer_press应该为101.3", 101.3, ((Number) photometerPress.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("photometer_flow应该为500.0", 500.0, ((Number) photometerFlow.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("photometer_temp应该为25.0", 25.0, ((Number) photometerTemp.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("case_temp应该为26.0", 26.0, ((Number) caseTemp.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("slope应该为1.0", 1.0, ((Number) slope.getState().getValue()).doubleValue(), 0.00001);
+        assertEquals("intercept应该为0.0", 0.0, ((Number) intercept.getState().getValue()).doubleValue(), 0.001);
+        assertEquals("alarm_code应该为0000", "0000", alarmCode.getState() != null ? alarmCode.getState().getValue() : null);
+        assertEquals("work_status值应该为Normal", AttributeStatus.NORMAL.getName(), workStatus.getState() != null ? workStatus.getState().getValue() : null);
+        assertEquals("work_status状态应该为NORMAL", AttributeStatus.NORMAL, workStatus.getState() != null ? workStatus.getState().getStatus() : null);
     }
 
     /**
@@ -606,8 +607,8 @@ public class SMS8600V2DeviceTest {
         assertTrue("状态数据处理应该成功", result);
         
         StringSelectAttribute workStatus = (StringSelectAttribute) sms8600v2Device.getAttrs().get("work_status");
-        assertEquals("work_status值应该为ZeroCheck", AttributeStatus.ZERO_CHECK.getName(), workStatus.getValue());
-        assertEquals("work_status状态应该为ZERO_CHECK", AttributeStatus.ZERO_CHECK, workStatus.getStatus());
+        assertEquals("work_status值应该为ZeroCheck", AttributeStatus.ZERO_CHECK.getName(), workStatus.getState() != null ? workStatus.getState().getValue() : null);
+        assertEquals("work_status状态应该为ZERO_CHECK", AttributeStatus.ZERO_CHECK, workStatus.getState() != null ? workStatus.getState().getStatus() : null);
     }
 
     /**
@@ -638,8 +639,8 @@ public class SMS8600V2DeviceTest {
         assertTrue("状态数据处理应该成功", result);
         
         StringSelectAttribute workStatus = (StringSelectAttribute) sms8600v2Device.getAttrs().get("work_status");
-        assertEquals("work_status值应该为SpanCheck", AttributeStatus.SPAN_CHECK.getName(), workStatus.getValue());
-        assertEquals("work_status状态应该为SPAN_CHECK", AttributeStatus.SPAN_CHECK, workStatus.getStatus());
+        assertEquals("work_status值应该为SpanCheck", AttributeStatus.SPAN_CHECK.getName(), workStatus.getState() != null ? workStatus.getState().getValue() : null);
+        assertEquals("work_status状态应该为SPAN_CHECK", AttributeStatus.SPAN_CHECK, workStatus.getState() != null ? workStatus.getState().getStatus() : null);
     }
 
     /**
@@ -670,8 +671,8 @@ public class SMS8600V2DeviceTest {
         assertTrue("状态数据处理应该成功", result);
         
         StringSelectAttribute workStatus = (StringSelectAttribute) sms8600v2Device.getAttrs().get("work_status");
-        assertEquals("work_status值应该为Alarm", AttributeStatus.ALARM.getName(), workStatus.getValue());
-        assertEquals("work_status状态应该为ALARM", AttributeStatus.ALARM, workStatus.getStatus());
+        assertEquals("work_status值应该为Alarm", AttributeStatus.ALARM.getName(), workStatus.getState() != null ? workStatus.getState().getValue() : null);
+        assertEquals("work_status状态应该为ALARM", AttributeStatus.ALARM, workStatus.getState() != null ? workStatus.getState().getStatus() : null);
     }
 
     /**
@@ -736,10 +737,10 @@ public class SMS8600V2DeviceTest {
         StringSelectAttribute channel3Gas = (StringSelectAttribute) sms8600v2Device.getAttrs().get("channel_3_gas");
         StringSelectAttribute channel4Gas = (StringSelectAttribute) sms8600v2Device.getAttrs().get("channel_4_gas");
 
-        assertEquals("channel_1_gas应该为1", "1", channel1Gas.getValue());
-        assertEquals("channel_2_gas应该为2", "2", channel2Gas.getValue());
-        assertEquals("channel_3_gas应该为3", "3", channel3Gas.getValue());
-        assertEquals("channel_4_gas应该为4", "4", channel4Gas.getValue());
+        assertEquals("channel_1_gas应该为1", "1", channel1Gas.getState() != null ? channel1Gas.getState().getValue() : null);
+        assertEquals("channel_2_gas应该为2", "2", channel2Gas.getState() != null ? channel2Gas.getState().getValue() : null);
+        assertEquals("channel_3_gas应该为3", "3", channel3Gas.getState() != null ? channel3Gas.getState().getValue() : null);
+        assertEquals("channel_4_gas应该为4", "4", channel4Gas.getState() != null ? channel4Gas.getState().getValue() : null);
     }
 
     /**
@@ -789,7 +790,7 @@ public class SMS8600V2DeviceTest {
         assertTrue("校准气体通道设置应该成功", result);
         
         StringSelectAttribute channel1Gas = (StringSelectAttribute) sms8600v2Device.getAttrs().get("channel_1_gas");
-        assertEquals("channel_1_gas应该为1", "1", channel1Gas.getValue());
+        assertEquals("channel_1_gas应该为1", "1", channel1Gas.getState() != null ? channel1Gas.getState().getValue() : null);
     }
 
     /**
@@ -830,7 +831,7 @@ public class SMS8600V2DeviceTest {
         Boolean result = (Boolean) invokePrivateMethod(sms8600v2Device, "processResponse", context);
 
         assertTrue("校准气体浓度设置应该成功", result);
-        assertEquals("SO2钢瓶气浓度应该为150.0", 150.0, so2Attr.getValue(), 0.01);
+        assertEquals("SO2钢瓶气浓度应该为150.0", 150.0, ((Number) so2Attr.getState().getValue()).doubleValue(), 0.01);
     }
 
     // ==================== 占位符值处理测试 ====================
@@ -871,12 +872,14 @@ public class SMS8600V2DeviceTest {
         // 测试处理单个 "-" 的情况
         invokePrivateMethod(sms8600v2Device, "updateAttribute", "power_component", numericEnum, "-", AttributeStatus.NORMAL);
         NumericAttribute powerComponent = (NumericAttribute) sms8600v2Device.getAttrs().get("power_component");
-        assertEquals("power_component状态应该为EMPTY", AttributeStatus.EMPTY, powerComponent.getStatus());
+        // "-" 是占位符，updateAttribute 内部直接 return 不更新属性；重构后该属性从未 updateValue，
+        // state 为 null（无 lastState）。验证占位符未触发任何数据写入：state 仍为 null（未变更）。
+        assertNull("power_component 收到占位符 '-' 不应被更新，state 应保持 null", powerComponent.getState());
 
         // 测试处理 "---" 的情况
         invokePrivateMethod(sms8600v2Device, "updateAttribute", "span_flow", numericEnum, "---", AttributeStatus.NORMAL);
         NumericAttribute spanFlow = (NumericAttribute) sms8600v2Device.getAttrs().get("span_flow");
-        assertEquals("span_flow状态应该为EMPTY", AttributeStatus.EMPTY, spanFlow.getStatus());
+        assertNull("span_flow 收到占位符 '---' 不应被更新，state 应保持 null", spanFlow.getState());
     }
 
     // ==================== 标气流量映射测试 ====================
@@ -913,7 +916,7 @@ public class SMS8600V2DeviceTest {
         invokePrivateMethod(sms8600v2Device, "processResponse", context);
 
         NumericAttribute so2SpanFlow = (NumericAttribute) sms8600v2Device.getAttrs().get("so2_span_flow");
-        assertEquals("so2_span_flow应该为500.0", 500.0, so2SpanFlow.getValue(), 0.01);
+        assertEquals("so2_span_flow应该为500.0", 500.0, ((Number) so2SpanFlow.getState().getValue()).doubleValue(), 0.01);
     }
 
     /**
@@ -939,7 +942,7 @@ public class SMS8600V2DeviceTest {
         invokePrivateMethod(sms8600v2Device, "processResponse", context);
 
         NumericAttribute no2SpanFlow = (NumericAttribute) sms8600v2Device.getAttrs().get("no2_span_flow");
-        assertEquals("no2_span_flow应该为600.0", 600.0, no2SpanFlow.getValue(), 0.01);
+        assertEquals("no2_span_flow应该为600.0", 600.0, ((Number) no2SpanFlow.getState().getValue()).doubleValue(), 0.01);
     }
 
     /**
@@ -965,7 +968,7 @@ public class SMS8600V2DeviceTest {
         invokePrivateMethod(sms8600v2Device, "processResponse", context);
 
         NumericAttribute coSpanFlow = (NumericAttribute) sms8600v2Device.getAttrs().get("co_span_flow");
-        assertEquals("co_span_flow应该为700.0", 700.0, coSpanFlow.getValue(), 0.01);
+        assertEquals("co_span_flow应该为700.0", 700.0, ((Number) coSpanFlow.getState().getValue()).doubleValue(), 0.01);
     }
 
     /**
@@ -994,9 +997,9 @@ public class SMS8600V2DeviceTest {
         NumericAttribute so2SpanFlow = (NumericAttribute) sms8600v2Device.getAttrs().get("so2_span_flow");
         NumericAttribute no2SpanFlow = (NumericAttribute) sms8600v2Device.getAttrs().get("no2_span_flow");
 
-        assertEquals("co_span_flow应该为0.0", 0.0, coSpanFlow.getValue(), 0.01);
-        assertEquals("so2_span_flow应该为0.0", 0.0, so2SpanFlow.getValue(), 0.01);
-        assertEquals("no2_span_flow应该为0.0", 0.0, no2SpanFlow.getValue(), 0.01);
+        assertEquals("co_span_flow应该为0.0", 0.0, ((Number) coSpanFlow.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("so2_span_flow应该为0.0", 0.0, ((Number) so2SpanFlow.getState().getValue()).doubleValue(), 0.01);
+        assertEquals("no2_span_flow应该为0.0", 0.0, ((Number) no2SpanFlow.getState().getValue()).doubleValue(), 0.01);
     }
 
     // ==================== I18n 国际化测试 ====================

@@ -459,7 +459,8 @@ public class SMS8600V2Device extends SerialDeviceBase {
             double flow_value = Double.parseDouble(spanFlow);
             if(flow_value > 0 && status == AttributeStatus.SPAN_CHECK){ // 流量大于0  更新气体的流量
                 StringSelectAttribute calibrationGasConfig = (StringSelectAttribute) getAttrs().get("calibration_gas_config");
-                String gasName = calibrationGasConfig.getValue();
+                // 从不可变 state 读，getValue 已封装为 protected
+                String gasName = calibrationGasConfig.getState() != null ? (String) calibrationGasConfig.getState().getValue() : null;
                 if(gasName != null && gasMapper.get(gasName).equals("S")){
                     updateAttribute("so2_span_flow", AttributeType.NUMERIC, spanFlow, status);
                 } else if (gasName != null && gasMapper.get(gasName).equals("N")) {
@@ -664,7 +665,8 @@ public class SMS8600V2Device extends SerialDeviceBase {
                 if (coattr.getChannelId().equals(cmds[0])){
                     updateCylinderGasConcValue(coattr, cmds[1], status);
                 }
-                log.info("Update cylinder gas concentration: " + so2attr.getAttributeID() + " = " + so2attr.getValue());
+                // 从不可变 state 读，getValue 已封装为 protected
+                log.info("Update cylinder gas concentration: " + so2attr.getAttributeID() + " = " + (so2attr.getState() != null ? so2attr.getState().getValue() : null));
             }
         }else{
             log.warn("parseCalppmResponse data error: " + result);

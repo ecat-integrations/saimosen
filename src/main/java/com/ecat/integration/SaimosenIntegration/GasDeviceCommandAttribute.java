@@ -265,7 +265,11 @@ public class GasDeviceCommandAttribute extends StringCommandAttribute {
             if (attr instanceof NumericAttribute) {
                 NumericAttribute numAttr = (NumericAttribute) attr;
                 if ("calibration_concentration".equals(numAttr.getAttributeID())) {
-                    return numAttr.getValue();
+                    // 从不可变 state 读，getValue 已封装为 protected
+                    if (numAttr.getState() == null || numAttr.getState().getValue() == null) {
+                        return 0.0; // 与原默认值一致：未配置浓度时按 0 处理
+                    }
+                    return ((Number) numAttr.getState().getValue()).doubleValue();
                 }
             }
         }

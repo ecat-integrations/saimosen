@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
@@ -69,7 +70,7 @@ public class SO2DeviceTest {
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
         
         // 模拟IntegrationRegistry
@@ -186,10 +187,10 @@ public class SO2DeviceTest {
     private void verifyFloatAttribute(String attrId, double expectedValue) {
         NumericAttribute attr = (NumericAttribute) so2Device.getAttrs().get(attrId);
         assertNotNull("Attribute " + attrId + " should not be null", attr);
-        if (attr.getValue() == null) {
+        if (attr.getState() == null || attr.getState().getValue() == null) {
             fail("Attribute " + attrId + " value is null");
         }
-        assertEquals("Attribute " + attrId + " value mismatch", expectedValue, attr.getValue(), 0.01); // 精度误差±0.01
+        assertEquals("Attribute " + attrId + " value mismatch", expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
     }
     
     @Test
@@ -427,9 +428,9 @@ public class SO2DeviceTest {
         // 验证校准浓度数值 - 跨度校准模式时应该为400
         verifyFloatAttribute("calibration_concentration", 400.0);
 
-        // 验证所有属性状态为跨度校准
-        so2Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为跨度校准（重构后未更新的属性 state 为 null，不在校验范围）
+        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getState().getStatus());
         });
     }
 
@@ -449,10 +450,9 @@ public class SO2DeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
 
-        // 验证所有属性状态为故障
-        so2Device.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
 
@@ -473,10 +473,9 @@ public class SO2DeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
 
-        // 验证所有属性状态为故障
-        so2Device.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
 
@@ -513,8 +512,8 @@ public class SO2DeviceTest {
 
         // 验证属性值已更新
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
-        assertEquals(25.5, so2Attr.getValue(), 0.01);
-        assertEquals(AttributeStatus.NORMAL, so2Attr.getStatus());
+        assertEquals(25.5, ((Number) so2Attr.getState().getValue()).doubleValue(), 0.01);
+        assertEquals(AttributeStatus.NORMAL, so2Attr.getState() != null ? so2Attr.getState().getStatus() : null);
     }
 
     @Test
@@ -648,9 +647,9 @@ public class SO2DeviceTest {
         // 验证结果
         assertFalse(result);
 
-        // 验证所有属性状态为故障
-        so2Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
 
@@ -686,9 +685,9 @@ public class SO2DeviceTest {
         // 验证结果
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        so2Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
     

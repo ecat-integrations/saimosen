@@ -1,5 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
+import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.Unit.AirVolumeUnit;
@@ -39,6 +40,16 @@ public class GasDeviceCommandAttributeTest {
     @Before
     public void setUp() {
         modbusSource = mock(ModbusSource.class);
+    }
+
+    /**
+     * 给独立创建的 NumericAttribute 绑定一个 mock 设备（getId() 非 null），
+     * 使 updateValue 能构建不可变 lastState（B5/B9 重构后 getState() 依赖 deviceId）。
+     */
+    private static void bindToMockDevice(NumericAttribute attr) {
+        DeviceBase mockDevice = mock(DeviceBase.class);
+        when(mockDevice.getId()).thenReturn("test-device-" + attr.getAttributeID());
+        attr.setDevice(mockDevice);
     }
 
     @Test
@@ -173,6 +184,7 @@ public class GasDeviceCommandAttributeTest {
         NumericAttribute concentration = new NumericAttribute(
                 "calibration_concentration", AttributeClass.CO, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
                 1, false, false);
+        bindToMockDevice(concentration);
         concentration.updateValue(123.0);
 
         TestableAttribute attr = new TestableAttribute(new GasDeviceCommandAttribute.COCommandConfigFactory());
@@ -201,6 +213,7 @@ public class GasDeviceCommandAttributeTest {
         NumericAttribute concentration = new NumericAttribute(
                 "calibration_concentration", AttributeClass.CO, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
                 1, false, false);
+        bindToMockDevice(concentration);
         concentration.updateValue(55.0);
 
         CalibNotifyDevice device = new CalibNotifyDevice();

@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -69,7 +70,7 @@ public class NO2DeviceTest {
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
         
         // 模拟IntegrationRegistry
@@ -313,78 +314,78 @@ public class NO2DeviceTest {
         // 验证属性存在且状态正常
         NumericAttribute noAttr = (NumericAttribute) no2Device.getAttrs().get("no");
         assertNotNull("NO属性应该存在", noAttr);
-        assertEquals("NO属性状态应该正常", AttributeStatus.NORMAL, noAttr.getStatus());
+        assertEquals("NO属性状态应该正常", AttributeStatus.NORMAL, noAttr.getState() != null ? noAttr.getState().getStatus() : null);
         
         NumericAttribute no2Attr = (NumericAttribute) no2Device.getAttrs().get("no2");
         assertNotNull("NO2属性应该存在", no2Attr);
-        assertEquals("NO2属性状态应该正常", AttributeStatus.NORMAL, no2Attr.getStatus());
+        assertEquals("NO2属性状态应该正常", AttributeStatus.NORMAL, no2Attr.getState() != null ? no2Attr.getState().getStatus() : null);
         
         NumericAttribute noxAttr = (NumericAttribute) no2Device.getAttrs().get("nox");
         assertNotNull("NOX属性应该存在", noxAttr);
-        assertEquals("NOX属性状态应该正常", AttributeStatus.NORMAL, noxAttr.getStatus());
+        assertEquals("NOX属性状态应该正常", AttributeStatus.NORMAL, noxAttr.getState() != null ? noxAttr.getState().getStatus() : null);
         
         NumericAttribute noMeasureVoltAttr = (NumericAttribute) no2Device.getAttrs().get("no_measure_volt");
         assertNotNull("NO_MEASURE_VOLT属性应该存在", noMeasureVoltAttr);
-        assertEquals("NO_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noMeasureVoltAttr.getStatus());
+        assertEquals("NO_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noMeasureVoltAttr.getState() != null ? noMeasureVoltAttr.getState().getStatus() : null);
         
         NumericAttribute noxMeasureVoltAttr = (NumericAttribute) no2Device.getAttrs().get("nox_measure_volt");
         assertNotNull("NOX_MEASURE_VOLT属性应该存在", noxMeasureVoltAttr);
-        assertEquals("NOX_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noxMeasureVoltAttr.getStatus());
+        assertEquals("NOX_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noxMeasureVoltAttr.getState() != null ? noxMeasureVoltAttr.getState().getStatus() : null);
         
         NumericAttribute samplePressAttr = (NumericAttribute) no2Device.getAttrs().get("sample_press");
         assertNotNull("SAMPLE_PRESS属性应该存在", samplePressAttr);
-        assertEquals("SAMPLE_PRESS属性状态应该正常", AttributeStatus.NORMAL, samplePressAttr.getStatus());
+        assertEquals("SAMPLE_PRESS属性状态应该正常", AttributeStatus.NORMAL, samplePressAttr.getState() != null ? samplePressAttr.getState().getStatus() : null);
         
         NumericAttribute sampleTempAttr = (NumericAttribute) no2Device.getAttrs().get("sample_temp");
         assertNotNull("SAMPLE_TEMP属性应该存在", sampleTempAttr);
-        assertEquals("SAMPLE_TEMP属性状态应该正常", AttributeStatus.NORMAL, sampleTempAttr.getStatus());
+        assertEquals("SAMPLE_TEMP属性状态应该正常", AttributeStatus.NORMAL, sampleTempAttr.getState() != null ? sampleTempAttr.getState().getStatus() : null);
         
         NumericAttribute sampleFlowAttr = (NumericAttribute) no2Device.getAttrs().get("sample_flow");
         assertNotNull("SAMPLE_FLOW属性应该存在", sampleFlowAttr);
-        assertEquals("SAMPLE_FLOW属性状态应该正常", AttributeStatus.NORMAL, sampleFlowAttr.getStatus());
+        assertEquals("SAMPLE_FLOW属性状态应该正常", AttributeStatus.NORMAL, sampleFlowAttr.getState() != null ? sampleFlowAttr.getState().getStatus() : null);
         
         NumericAttribute pumpPressAttr = (NumericAttribute) no2Device.getAttrs().get("pump_press");
         assertNotNull("PUMP_PRESS属性应该存在", pumpPressAttr);
-        assertEquals("PUMP_PRESS属性状态应该正常", AttributeStatus.NORMAL, pumpPressAttr.getStatus());
+        assertEquals("PUMP_PRESS属性状态应该正常", AttributeStatus.NORMAL, pumpPressAttr.getState() != null ? pumpPressAttr.getState().getStatus() : null);
         
         NumericAttribute chamberPressAttr = (NumericAttribute) no2Device.getAttrs().get("chamber_press");
         assertNotNull("CHAMBER_PRESS属性应该存在", chamberPressAttr);
-        assertEquals("CHAMBER_PRESS属性状态应该正常", AttributeStatus.NORMAL, chamberPressAttr.getStatus());
+        assertEquals("CHAMBER_PRESS属性状态应该正常", AttributeStatus.NORMAL, chamberPressAttr.getState() != null ? chamberPressAttr.getState().getStatus() : null);
         
         NumericAttribute ozoneFlowAttr = (NumericAttribute) no2Device.getAttrs().get("o3_flow");
         assertNotNull("O3_FLOW属性应该存在", ozoneFlowAttr);
-        assertEquals("O3_FLOW属性状态应该正常", AttributeStatus.NORMAL, ozoneFlowAttr.getStatus());
+        assertEquals("O3_FLOW属性状态应该正常", AttributeStatus.NORMAL, ozoneFlowAttr.getState() != null ? ozoneFlowAttr.getState().getStatus() : null);
         
         NumericAttribute noSlopeAttr = (NumericAttribute) no2Device.getAttrs().get("no_slope");
         assertNotNull("NO_SLOPE属性应该存在", noSlopeAttr);
-        assertEquals("NO_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noSlopeAttr.getStatus());
+        assertEquals("NO_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noSlopeAttr.getState() != null ? noSlopeAttr.getState().getStatus() : null);
         
         NumericAttribute noInterceptAttr = (NumericAttribute) no2Device.getAttrs().get("no_intercept");
         assertNotNull("NO_INTERCEPT属性应该存在", noInterceptAttr);
-        assertEquals("NO_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noInterceptAttr.getStatus());
+        assertEquals("NO_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noInterceptAttr.getState() != null ? noInterceptAttr.getState().getStatus() : null);
         
         NumericAttribute noxSlopeAttr = (NumericAttribute) no2Device.getAttrs().get("nox_slope");
         assertNotNull("NOX_SLOPE属性应该存在", noxSlopeAttr);
-        assertEquals("NOX_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noxSlopeAttr.getStatus());
+        assertEquals("NOX_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noxSlopeAttr.getState() != null ? noxSlopeAttr.getState().getStatus() : null);
         
         NumericAttribute noxInterceptAttr = (NumericAttribute) no2Device.getAttrs().get("nox_intercept");
         assertNotNull("NOX_INTERCEPT属性应该存在", noxInterceptAttr);
-        assertEquals("NOX_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noxInterceptAttr.getStatus());
+        assertEquals("NOX_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noxInterceptAttr.getState() != null ? noxInterceptAttr.getState().getStatus() : null);
         
         // 验证校准状态属性
         NumericAttribute calibStatusAttr = (NumericAttribute) no2Device.getAttrs().get("calibration_status");
-        assertEquals(0.0, calibStatusAttr.getValue(), 0.01);
+        assertEquals(0.0, ((Number) calibStatusAttr.getState().getValue()).doubleValue(), 0.01);
         
         // 验证校准浓度属性
         NumericAttribute calibConcAttr = (NumericAttribute) no2Device.getAttrs().get("calibration_concentration");
-        assertEquals(0.0, calibConcAttr.getValue(), 0.01); // 正常测量模式下为0
+        assertEquals(0.0, ((Number) calibConcAttr.getState().getValue()).doubleValue(), 0.01); // 正常测量模式下为0
         
-        // 验证所有属性状态为正常
-        no2Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.NORMAL, attr.getStatus());
+        // 验证所有数据更新过的属性状态为正常（重构后未更新的属性 state 为 null，不在校验范围）
+        no2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.NORMAL, attr.getState().getStatus());
         });
     }
-    
+
     @Test
     public void testReadAndUpdate_HandlesException() throws Exception {
         // 模拟Modbus读取异常
@@ -400,12 +401,11 @@ public class NO2DeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有属性状态为故障或空（因为没有任何数据段成功）
-        no2Device.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
+        // 验证所有数据更新过的属性状态为故障或空（重构后未更新的属性 state 为 null，不在校验范围）
+        no2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
             // 由于所有数据段都失败，属性状态可能是MALFUNCTION或EMPTY
-            assertTrue("Attribute status should be MALFUNCTION or EMPTY", 
-                attr.getStatus() == AttributeStatus.MALFUNCTION || attr.getStatus() == AttributeStatus.EMPTY);
+            assertTrue("Attribute status should be MALFUNCTION or EMPTY",
+                attr.getState().getStatus() == AttributeStatus.MALFUNCTION || attr.getState().getStatus() == AttributeStatus.EMPTY);
         });
     }
     
@@ -461,68 +461,68 @@ public class NO2DeviceTest {
         // 验证属性存在且状态正常
         NumericAttribute noAttr = (NumericAttribute) no2Device.getAttrs().get("no");
         assertNotNull("NO属性应该存在", noAttr);
-        assertEquals("NO属性状态应该正常", AttributeStatus.NORMAL, noAttr.getStatus());
+        assertEquals("NO属性状态应该正常", AttributeStatus.NORMAL, noAttr.getState() != null ? noAttr.getState().getStatus() : null);
         
         NumericAttribute no2Attr = (NumericAttribute) no2Device.getAttrs().get("no2");
         assertNotNull("NO2属性应该存在", no2Attr);
-        assertEquals("NO2属性状态应该正常", AttributeStatus.NORMAL, no2Attr.getStatus());
+        assertEquals("NO2属性状态应该正常", AttributeStatus.NORMAL, no2Attr.getState() != null ? no2Attr.getState().getStatus() : null);
         
         NumericAttribute noxAttr = (NumericAttribute) no2Device.getAttrs().get("nox");
         assertNotNull("NOX属性应该存在", noxAttr);
-        assertEquals("NOX属性状态应该正常", AttributeStatus.NORMAL, noxAttr.getStatus());
+        assertEquals("NOX属性状态应该正常", AttributeStatus.NORMAL, noxAttr.getState() != null ? noxAttr.getState().getStatus() : null);
         
         NumericAttribute noSlopeAttr = (NumericAttribute) no2Device.getAttrs().get("no_slope");
         assertNotNull("NO_SLOPE属性应该存在", noSlopeAttr);
-        assertEquals("NO_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noSlopeAttr.getStatus());
+        assertEquals("NO_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noSlopeAttr.getState() != null ? noSlopeAttr.getState().getStatus() : null);
         
         NumericAttribute noxSlopeAttr = (NumericAttribute) no2Device.getAttrs().get("nox_slope");
         assertNotNull("NOX_SLOPE属性应该存在", noxSlopeAttr);
-        assertEquals("NOX_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noxSlopeAttr.getStatus());
+        assertEquals("NOX_SLOPE属性状态应该正常", AttributeStatus.NORMAL, noxSlopeAttr.getState() != null ? noxSlopeAttr.getState().getStatus() : null);
         
         NumericAttribute noxInterceptAttr = (NumericAttribute) no2Device.getAttrs().get("nox_intercept");
         assertNotNull("NOX_INTERCEPT属性应该存在", noxInterceptAttr);
-        assertEquals("NOX_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noxInterceptAttr.getStatus());
+        assertEquals("NOX_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noxInterceptAttr.getState() != null ? noxInterceptAttr.getState().getStatus() : null);
         
         // 验证其他重要属性
         NumericAttribute noMeasureVoltAttr = (NumericAttribute) no2Device.getAttrs().get("no_measure_volt");
         assertNotNull("NO_MEASURE_VOLT属性应该存在", noMeasureVoltAttr);
-        assertEquals("NO_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noMeasureVoltAttr.getStatus());
+        assertEquals("NO_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noMeasureVoltAttr.getState() != null ? noMeasureVoltAttr.getState().getStatus() : null);
         
         NumericAttribute noxMeasureVoltAttr = (NumericAttribute) no2Device.getAttrs().get("nox_measure_volt");
         assertNotNull("NOX_MEASURE_VOLT属性应该存在", noxMeasureVoltAttr);
-        assertEquals("NOX_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noxMeasureVoltAttr.getStatus());
+        assertEquals("NOX_MEASURE_VOLT属性状态应该正常", AttributeStatus.NORMAL, noxMeasureVoltAttr.getState() != null ? noxMeasureVoltAttr.getState().getStatus() : null);
         
         NumericAttribute samplePressAttr = (NumericAttribute) no2Device.getAttrs().get("sample_press");
         assertNotNull("SAMPLE_PRESS属性应该存在", samplePressAttr);
-        assertEquals("SAMPLE_PRESS属性状态应该正常", AttributeStatus.NORMAL, samplePressAttr.getStatus());
+        assertEquals("SAMPLE_PRESS属性状态应该正常", AttributeStatus.NORMAL, samplePressAttr.getState() != null ? samplePressAttr.getState().getStatus() : null);
         
         NumericAttribute sampleTempAttr = (NumericAttribute) no2Device.getAttrs().get("sample_temp");
         assertNotNull("SAMPLE_TEMP属性应该存在", sampleTempAttr);
-        assertEquals("SAMPLE_TEMP属性状态应该正常", AttributeStatus.NORMAL, sampleTempAttr.getStatus());
+        assertEquals("SAMPLE_TEMP属性状态应该正常", AttributeStatus.NORMAL, sampleTempAttr.getState() != null ? sampleTempAttr.getState().getStatus() : null);
         
         NumericAttribute sampleFlowAttr = (NumericAttribute) no2Device.getAttrs().get("sample_flow");
         assertNotNull("SAMPLE_FLOW属性应该存在", sampleFlowAttr);
-        assertEquals("SAMPLE_FLOW属性状态应该正常", AttributeStatus.NORMAL, sampleFlowAttr.getStatus());
+        assertEquals("SAMPLE_FLOW属性状态应该正常", AttributeStatus.NORMAL, sampleFlowAttr.getState() != null ? sampleFlowAttr.getState().getStatus() : null);
         
         NumericAttribute pumpPressAttr = (NumericAttribute) no2Device.getAttrs().get("pump_press");
         assertNotNull("PUMP_PRESS属性应该存在", pumpPressAttr);
-        assertEquals("PUMP_PRESS属性状态应该正常", AttributeStatus.NORMAL, pumpPressAttr.getStatus());
+        assertEquals("PUMP_PRESS属性状态应该正常", AttributeStatus.NORMAL, pumpPressAttr.getState() != null ? pumpPressAttr.getState().getStatus() : null);
         
         NumericAttribute chamberPressAttr = (NumericAttribute) no2Device.getAttrs().get("chamber_press");
         assertNotNull("CHAMBER_PRESS属性应该存在", chamberPressAttr);
-        assertEquals("CHAMBER_PRESS属性状态应该正常", AttributeStatus.NORMAL, chamberPressAttr.getStatus());
+        assertEquals("CHAMBER_PRESS属性状态应该正常", AttributeStatus.NORMAL, chamberPressAttr.getState() != null ? chamberPressAttr.getState().getStatus() : null);
         
         NumericAttribute ozoneFlowAttr = (NumericAttribute) no2Device.getAttrs().get("o3_flow");
         assertNotNull("O3_FLOW属性应该存在", ozoneFlowAttr);
-        assertEquals("O3_FLOW属性状态应该正常", AttributeStatus.NORMAL, ozoneFlowAttr.getStatus());
+        assertEquals("O3_FLOW属性状态应该正常", AttributeStatus.NORMAL, ozoneFlowAttr.getState() != null ? ozoneFlowAttr.getState().getStatus() : null);
         
         NumericAttribute noInterceptAttr = (NumericAttribute) no2Device.getAttrs().get("no_intercept");
         assertNotNull("NO_INTERCEPT属性应该存在", noInterceptAttr);
-        assertEquals("NO_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noInterceptAttr.getStatus());
+        assertEquals("NO_INTERCEPT属性状态应该正常", AttributeStatus.NORMAL, noInterceptAttr.getState() != null ? noInterceptAttr.getState().getStatus() : null);
         
-        // 验证所有属性状态为正常
-        no2Device.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.NORMAL, attr.getStatus());
+        // 验证所有数据更新过的属性状态为正常（重构后未更新的属性 state 为 null，不在校验范围）
+        no2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.NORMAL, attr.getState().getStatus());
         });
     }
     

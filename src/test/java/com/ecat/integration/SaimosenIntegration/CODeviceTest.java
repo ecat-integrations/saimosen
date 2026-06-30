@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
+import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -70,7 +71,7 @@ public class CODeviceTest {
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(), any());
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
         
         // 模拟IntegrationRegistry
@@ -186,7 +187,7 @@ public class CODeviceTest {
         NumericAttribute attr = (NumericAttribute) coDevice.getAttrs().get(attrId);
         assertNotNull("属性 " + attrId + " 应该存在", attr);
         if (attr != null) {
-            assertEquals("属性 " + attrId + " 的值应该正确", expectedValue, attr.getValue(), 0.01); // 精度误差±0.01
+            assertEquals("属性 " + attrId + " 的值应该正确", expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
         }
     }
     
@@ -384,9 +385,9 @@ public class CODeviceTest {
         // 验证校准浓度数值 - 跨度校准模式时应该为400
         verifyFloatAttribute("calibration_concentration", 400.0);
         
-        // 验证所有属性状态为跨度校准
-        coDevice.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为跨度校准（重构后未更新的属性 state 为 null，不在校验范围）
+        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getState().getStatus());
         });
     }
     
@@ -406,13 +407,12 @@ public class CODeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        coDevice.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
-    
+
     @Test
     public void testReadAndUpdate_HandlesDataParsingException() throws Exception {
         // 准备无效的寄存器数据 - 使用null来触发异常
@@ -430,13 +430,12 @@ public class CODeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        coDevice.getAttrs().values().forEach(attr -> {
-            assertNotNull("Attribute should not be null", attr);
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
-    
+
     @Test
     public void testSegmentConfiguration() throws Exception {
         // 验证数据段配置是否正确
@@ -458,8 +457,8 @@ public class CODeviceTest {
 
         // 验证属性值已更新
         NumericAttribute coAttr = (NumericAttribute) coDevice.getAttrs().get("co");
-        assertEquals(25.5, coAttr.getValue(), 0.01);
-        assertEquals(AttributeStatus.NORMAL, coAttr.getStatus());
+        assertEquals(25.5, ((Number) coAttr.getState().getValue()).doubleValue(), 0.01);
+        assertEquals(AttributeStatus.NORMAL, coAttr.getState() != null ? coAttr.getState().getStatus() : null);
     }
     
     @Test
@@ -586,9 +585,9 @@ public class CODeviceTest {
         // 验证结果
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        coDevice.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
     
@@ -624,9 +623,9 @@ public class CODeviceTest {
         // 验证结果
         assertFalse(result);
         
-        // 验证所有属性状态为故障
-        coDevice.getAttrs().values().forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getStatus());
+        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
+        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
+            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
         });
     }
     
