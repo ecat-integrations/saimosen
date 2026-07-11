@@ -336,6 +336,9 @@ public class O3Device extends SmsDeviceBase {
     private SegmentData parseFloatData(short[] rawData) {
         double[] values = new double[rawData.length / 2];  // 每个float参数占用2个寄存器
         for (int i = 0; i < values.length; i++) {
+            // 设备寄存器布局 = BADC(高字在前 + 字内字节交换):此处反转参数 (secondReg, firstReg) 调
+            // convertLittleEndianByteSwapToFloat(方法本身=DCBA),净效果 BADC。勿凭方法名误判 CDAB——
+            // 实测 O3 [0xBF3E,0xFB7C]→0.374 见 modbus 集成 RealDeviceByteOrderTest#saimosenO3IsBadc。
             values[i] = Tools.convertLittleEndianByteSwapToFloat(rawData[i*2+1], rawData[i*2]);
         }
         return new SegmentData("float_params", values);
@@ -539,17 +542,6 @@ public class O3Device extends SmsDeviceBase {
         }
     }
 
-    private double getCalibrationValue(DeviceStatus deviceStatus, double spanCalibConcentrationValue) {
-        switch (deviceStatus) {
-            case ZERO_CALIBRATION:
-                return 0.0; // 零点校准
-            case SPAN_CALIBRATION:
-                return spanCalibConcentrationValue; // 跨度校准
-            default:
-                return 0.0;
-        }
-    }
-
     private void updateAttribute(String attrName, double value, AttributeStatus status) {
         AttributeAbility<?> attr = getAttrs().get(attrName);
         if (attr instanceof NumericAttribute) {
@@ -697,21 +689,16 @@ public class O3Device extends SmsDeviceBase {
     private static class DataSegment {
         final int startAddress;  // 起始地址
         final int count;         // 寄存器数量
-        final String description; // 描述信息
-
         DataSegment(int startAddress, int count, String description) {
             this.startAddress = startAddress;
             this.count = count;
-            this.description = description;
         }
     }
 
     private static class SegmentData {
-        final String segmentName; // 段名称
         final double[] values;    // 数值数组
 
         SegmentData(String segmentName, double[] values) {
-            this.segmentName = segmentName;
             this.values = values;
         }
     }
