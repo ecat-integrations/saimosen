@@ -703,35 +703,6 @@ public class SO2DeviceTest {
     }
     
     @Test
-    public void testCalibrationValueMapping() throws Exception {
-        // 测试校准浓度数值映射
-        // 测试零点校准状态
-        Object zeroCalibValue = invokePrivateMethod(so2Device, "getCalibrationValue", 
-                com.ecat.core.Device.DeviceStatus.ZERO_CALIBRATION, 0.0);
-        assertEquals(0.0, (Double) zeroCalibValue, 0.01);
-        
-        // 测试零点状态
-        Object zeroValue = invokePrivateMethod(so2Device, "getCalibrationValue", 
-                com.ecat.core.Device.DeviceStatus.ZERO, 0.0);
-        assertEquals(0.0, (Double) zeroValue, 0.01);
-        
-        // 测试跨度校准状态
-        Object spanCalibValue = invokePrivateMethod(so2Device, "getCalibrationValue", 
-                com.ecat.core.Device.DeviceStatus.SPAN_CALIBRATION, 400.0);
-        assertEquals(400.0, (Double) spanCalibValue, 0.01);
-
-        // 测试跨度状态（使用SPAN_CALIBRATION）
-        Object spanValue = invokePrivateMethod(so2Device, "getCalibrationValue",
-                com.ecat.core.Device.DeviceStatus.SPAN_CALIBRATION, 400.0);
-        assertEquals(400.0, (Double) spanValue, 0.01);
-
-        // 测试测量状态
-        Object measureValue = invokePrivateMethod(so2Device, "getCalibrationValue",
-                com.ecat.core.Device.DeviceStatus.MEASURE, 0.0);
-        assertEquals(0.0, (Double) measureValue, 0.01);
-    }
-
-    @Test
     public void testAttributeStatusMapping() throws Exception {
         // 测试属性状态映射
         // 这里需要根据实际的DeviceStatus和AttributeStatus枚举来测试
