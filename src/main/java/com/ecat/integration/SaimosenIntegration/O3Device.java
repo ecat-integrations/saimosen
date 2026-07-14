@@ -17,6 +17,9 @@ import com.ecat.core.State.Unit.PressureUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.core.State.Unit.VoltageUnit;
 import com.ecat.core.State.Unit.NoConversionUnit;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
+import com.ecat.integration.ModbusIntegration.EndianConverter.EndianConverter;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
 import com.ecat.integration.ModbusIntegration.Tools;
@@ -58,6 +61,15 @@ public class O3Device extends SmsDeviceBase {
     private volatile long lastCalibrationWriteTime = 0;
     // 写入保护时间窗口（毫秒），在此时间内使用写入的值而不是读取的值
     private static final long CALIBRATION_WRITE_PROTECTION_MS = 2000; // 2秒保护期
+
+    /** O3 float 段：小端字节交换，读用 {@link Tools#convertLittleEndianByteSwapToFloat}，写见 {@link SmsLittleEndianByteSwapEndianConverter} */
+    private final EndianConverter o3FloatEndian = SmsLittleEndianByteSwapEndianConverter.INSTANCE;
+
+    private static final String[] FLOAT_ATTR_NAMES = {
+            "o3", "measure_volt", "ref_volt", "sample_press", "sample_temp", "sample_flow", "pump_press",
+            "slope", "intercept", "sample_press_corr", "pump_press_corr", "sample_temp_corr", "sample_flow_corr",
+            "led_set_current", "led_current", "raw_concentration", "reserve_1", "reserve_2", "reserve_3", "reserve_4"
+    };
 
     public O3Device(ConfigEntry entry) {
         super(entry);
@@ -110,27 +122,27 @@ public class O3Device extends SmsDeviceBase {
         setAttribute(new NumericAttribute(
                 "pump_press", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
                 2, false, false));
-        setAttribute(new NumericAttribute(
+        setAttribute(new ModbusFloatAttribute(
                 "slope", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                3, false, true));
-        setAttribute(new NumericAttribute(
+                3, false, true, modbusSource, (short) 14, o3FloatEndian));
+        setAttribute(new ModbusFloatAttribute(
                 "intercept", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                3, false, true));
-        setAttribute(new NumericAttribute(
+                3, false, true, modbusSource, (short) 16, o3FloatEndian));
+        setAttribute(new ModbusFloatAttribute(
                 "sample_press_corr", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
-                2, true, true));
-        setAttribute(new NumericAttribute(
+                2, true, true, modbusSource, (short) 18, o3FloatEndian));
+        setAttribute(new ModbusFloatAttribute(
                 "pump_press_corr", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
-                2, true, true));
-        setAttribute(new NumericAttribute(
+                2, true, true, modbusSource, (short) 20, o3FloatEndian));
+        setAttribute(new ModbusFloatAttribute(
                 "sample_temp_corr", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS,
-                1, true, true));
-        setAttribute(new NumericAttribute(
+                1, true, true, modbusSource, (short) 22, o3FloatEndian));
+        setAttribute(new ModbusFloatAttribute(
                 "sample_flow_corr", AttributeClass.FLOW, LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
-                2, true, true));
-        setAttribute(new NumericAttribute(
+                2, true, true, modbusSource, (short) 24, o3FloatEndian));
+        setAttribute(new ModbusFloatAttribute(
                 "led_set_current", AttributeClass.CURRENT, NoConversionUnit.of("mA"), NoConversionUnit.of("mA"),
-                3, true, true));
+                3, true, true, modbusSource, (short) 26, o3FloatEndian));
         setAttribute(new NumericAttribute(
                 "led_current", AttributeClass.CURRENT, NoConversionUnit.of("mA"), NoConversionUnit.of("mA"),
                 3, false, false));
@@ -152,15 +164,15 @@ public class O3Device extends SmsDeviceBase {
                 1, false, false));
         
         // U16参数（从地址40开始，18个）
-        setAttribute(new NumericAttribute(
+        setAttribute(new ModbusShortAttribute(
                 "device_address", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
-        setAttribute(new NumericAttribute(
+                1, false, true, modbusSource, (short) 40));
+        setAttribute(new ModbusShortAttribute(
                 "device_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
-        setAttribute(new NumericAttribute(
+                1, false, true, modbusSource, (short) 41));
+        setAttribute(new ModbusShortAttribute(
                 "uv_amplification", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
+                1, false, true, modbusSource, (short) 42));
         setAttribute(new NumericAttribute(
                 "sample_temp_volt", AttributeClass.VOLTAGE, VoltageUnit.MILLIVOLT, VoltageUnit.MILLIVOLT,
                 1, false, false));
@@ -188,18 +200,18 @@ public class O3Device extends SmsDeviceBase {
         setAttribute(new NumericAttribute(
                 "voltage_3v3", AttributeClass.VOLTAGE, VoltageUnit.MILLIVOLT, VoltageUnit.MILLIVOLT,
                 1, false, false));
-        setAttribute(new NumericAttribute(
+        setAttribute(new ModbusShortAttribute(
                 "measure_ref_valve_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
-        setAttribute(new NumericAttribute(
+                1, false, true, modbusSource, (short) 52));
+        setAttribute(new ModbusShortAttribute(
                 "sample_cal_valve_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
-        setAttribute(new NumericAttribute(
+                1, false, true, modbusSource, (short) 53));
+        setAttribute(new ModbusShortAttribute(
                 "builtin_pump_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
-        setAttribute(new NumericAttribute(
+                1, false, true, modbusSource, (short) 54));
+        setAttribute(new ModbusShortAttribute(
                 "case_fan_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
+                1, false, true, modbusSource, (short) 55));
         setAttribute(new NumericAttribute(
                 "alarm_info", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, false));
@@ -341,7 +353,7 @@ public class O3Device extends SmsDeviceBase {
             // 实测 O3 [0xBF3E,0xFB7C]→0.374 见 modbus 集成 RealDeviceByteOrderTest#saimosenO3IsBadc。
             values[i] = Tools.convertLittleEndianByteSwapToFloat(rawData[i*2+1], rawData[i*2]);
         }
-        return new SegmentData("float_params", values);
+        return new SegmentData("float_params", values, rawData);
     }
 
     private SegmentData parseU16Data(short[] rawData) {
@@ -378,7 +390,7 @@ public class O3Device extends SmsDeviceBase {
 
         // 更新float属性（如果数据可用）
         if (floatData != null) {
-            updateFloatAttributes(floatData.values, baseStatus);
+            updateFloatAttributes(floatData, baseStatus);
         } else {
             // 如果float数据不可用，设置相关属性为故障状态
             setFloatAttributesStatus(AttributeStatus.MALFUNCTION);
@@ -405,19 +417,27 @@ public class O3Device extends SmsDeviceBase {
         publicAttrsState();
     }
 
-    private void updateFloatAttributes(double[] values, AttributeStatus status) {
-        String[] floatAttrNames = {"o3", "measure_volt", "ref_volt", "sample_press", "sample_temp", "sample_flow", "pump_press", "slope", "intercept", "sample_press_corr", "pump_press_corr", "sample_temp_corr", "sample_flow_corr", "led_set_current", "led_current", "raw_concentration", "reserve_1", "reserve_2", "reserve_3", "reserve_4"};
-        
-        for (int i = 0; i < Math.min(values.length, floatAttrNames.length); i++) {
-            updateAttribute(floatAttrNames[i], values[i], status);
+    private void updateFloatAttributes(SegmentData floatData, AttributeStatus status) {
+        double[] values = floatData.values;
+        short[] raw = floatData.rawRegisters;
+        for (int i = 0; i < Math.min(values.length, FLOAT_ATTR_NAMES.length); i++) {
+            String name = FLOAT_ATTR_NAMES[i];
+            AttributeAbility<?> attr = getAttrs().get(name);
+            if (attr instanceof ModbusFloatAttribute && raw != null && i * 2 + 1 < raw.length) {
+                ModbusFloatAttribute modbusAttr = (ModbusFloatAttribute) attr;
+                modbusAttr.updateValue(raw[i * 2], raw[i * 2 + 1]);
+                modbusAttr.setStatus(status);
+            } else {
+                updateAttribute(name, values[i], status);
+            }
         }
     }
 
     private void updateU16Attributes(double[] values, AttributeStatus status) {
         // 根据O3设备协议，某些电压值需要除以10进行单位转换
-        updateAttribute("device_address", values[0], status);
-        updateAttribute("device_status", values[1], status);
-        updateAttribute("uv_amplification", values[2], status);
+        updateModbusShortAttribute("device_address", values[0], status);
+        updateModbusShortAttribute("device_status", values[1], status);
+        updateModbusShortAttribute("uv_amplification", values[2], status);
         updateAttribute("sample_temp_volt", values[3] / 10.0, status); // 除以10转换为mV
         updateAttribute("sample_press_volt", values[4] / 10.0, status); // 除以10转换为mV
         updateAttribute("pump_press_volt", values[5] / 10.0, status); // 除以10转换为mV
@@ -427,10 +447,10 @@ public class O3Device extends SmsDeviceBase {
         updateAttribute("voltage_15v", values[9], status);
         updateAttribute("voltage_5v", values[10], status);
         updateAttribute("voltage_3v3", values[11], status);
-        updateAttribute("measure_ref_valve_status", values[12], status);
-        updateAttribute("sample_cal_valve_status", values[13], status);
-        updateAttribute("builtin_pump_status", values[14], status);
-        updateAttribute("case_fan_status", values[15], status);
+        updateModbusShortAttribute("measure_ref_valve_status", values[12], status);
+        updateModbusShortAttribute("sample_cal_valve_status", values[13], status);
+        updateModbusShortAttribute("builtin_pump_status", values[14], status);
+        updateModbusShortAttribute("case_fan_status", values[15], status);
         updateAttribute("alarm_info", values[16], status);
         updateAttribute("fault_code", values[17], status);
     }
@@ -472,9 +492,7 @@ public class O3Device extends SmsDeviceBase {
      * @param status 属性状态
      */
     private void setFloatAttributesStatus(AttributeStatus status) {
-        String[] floatAttrNames = {"o3", "measure_volt", "ref_volt", "sample_press", "sample_temp", "sample_flow", "pump_press", "slope", "intercept", "sample_press_corr", "pump_press_corr", "sample_temp_corr", "sample_flow_corr", "led_set_current", "led_current", "raw_concentration", "reserve_1", "reserve_2", "reserve_3", "reserve_4"};
-        
-        for (String attrName : floatAttrNames) {
+        for (String attrName : FLOAT_ATTR_NAMES) {
             AttributeAbility<?> attr = getAttrs().get(attrName);
             if (attr != null) {
                 attr.setStatus(status);
@@ -547,6 +565,16 @@ public class O3Device extends SmsDeviceBase {
         if (attr instanceof NumericAttribute) {
             NumericAttribute numAttr = (NumericAttribute) attr;
             numAttr.updateValue(value, status);
+        }
+    }
+
+    private void updateModbusShortAttribute(String attrName, double registerValue, AttributeStatus status) {
+        AttributeAbility<?> attr = getAttrs().get(attrName);
+        if (attr instanceof ModbusShortAttribute) {
+            ModbusShortAttribute shortAttr = (ModbusShortAttribute) attr;
+            shortAttr.updateValue((short) ((int) registerValue & 0xFFFF), status);
+        } else {
+            updateAttribute(attrName, registerValue, status);
         }
     }
 
@@ -697,9 +725,15 @@ public class O3Device extends SmsDeviceBase {
 
     private static class SegmentData {
         final double[] values;    // 数值数组
+        final short[] rawRegisters; // float 段原始寄存器（可选）
 
         SegmentData(String segmentName, double[] values) {
+            this(segmentName, values, null);
+        }
+
+        SegmentData(String segmentName, double[] values, short[] rawRegisters) {
             this.values = values;
+            this.rawRegisters = rawRegisters;
         }
     }
 } 

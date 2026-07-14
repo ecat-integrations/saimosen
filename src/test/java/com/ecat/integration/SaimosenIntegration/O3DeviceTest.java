@@ -7,15 +7,18 @@ import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
+import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
+import com.serotonin.modbus4j.msg.WriteRegistersResponse;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -182,8 +185,9 @@ public class O3DeviceTest {
     }
 
     private void verifyFloatAttribute(String attrId, double expectedValue) {
-        NumericAttribute attr = (NumericAttribute) o3Device.getAttrs().get(attrId);
+        AttributeBase<?> attr = o3Device.getAttrs().get(attrId);
         assertNotNull(attr);
+        assertNotNull(attr.getState());
         assertEquals(expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
     }
     
@@ -840,15 +844,15 @@ public class O3DeviceTest {
         assertNotNull("O3值不应为null", o3Attr.getState() != null ? o3Attr.getState().getValue() : null);
 
         // 验证U16数据解析 - 主要验证数据能够被正确解析，而不是验证具体数值
-        NumericAttribute deviceAddrAttr = (NumericAttribute) o3Device.getAttrs().get("device_address");
+        AttributeBase<?> deviceAddrAttr = o3Device.getAttrs().get("device_address");
         assertNotNull("DEVICE_ADDRESS属性不应为null", deviceAddrAttr);
         assertNotNull("DEVICE_ADDRESS值不应为null", deviceAddrAttr.getState() != null ? deviceAddrAttr.getState().getValue() : null);
 
-        NumericAttribute deviceStatusAttr = (NumericAttribute) o3Device.getAttrs().get("device_status");
+        AttributeBase<?> deviceStatusAttr = o3Device.getAttrs().get("device_status");
         assertNotNull("DEVICE_STATUS属性不应为null", deviceStatusAttr);
         assertNotNull("DEVICE_STATUS值不应为null", deviceStatusAttr.getState() != null ? deviceStatusAttr.getState().getValue() : null);
 
-        NumericAttribute uvAmpAttr = (NumericAttribute) o3Device.getAttrs().get("uv_amplification");
+        AttributeBase<?> uvAmpAttr = o3Device.getAttrs().get("uv_amplification");
         assertNotNull("UV_AMPLIFICATION属性不应为null", uvAmpAttr);
         assertNotNull("UV_AMPLIFICATION值不应为null", uvAmpAttr.getState() != null ? uvAmpAttr.getState().getValue() : null);
 
@@ -993,5 +997,33 @@ public class O3DeviceTest {
         }
     }
 
+    @Test
+    public void testLedSetCurrent_userSetWritesFc16AtRegister26() throws Exception {
+        ModbusFloatAttribute ledAttr = (ModbusFloatAttribute) o3Device.getAttrs().get("led_set_current");
+        assertNotNull(ledAttr);
+        assertTrue(ledAttr.isValueChangeable());
+
+        WriteRegistersResponse mockWriteResponse = mock(WriteRegistersResponse.class);
+        when(mockWriteResponse.isException()).thenReturn(false);
+        when(mockModbusSource.writeRegisters(eq(26), any(short[].class)))
+                .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
+
+        assertTrue(ledAttr.setValue(8.0f).get(5, TimeUnit.SECONDS));
+
+        verify(mockModbusSource, times(1)).writeRegisters(eq(26), eq(new short[] { 0x0041, 0x0000 }));
+        assertEquals(8.0f, ledAttr.getState().getValue(), 0.001f);
+    }
+
+    @Test
+    public void testLedSetCurrent_floatEncodingMatchesO3Protocol() {
+        short[] words = SmsLittleEndianByteSwapEndianConverter.INSTANCE.floatToShorts(8.0f);
+        assertEquals(2, words.length);
+        assertEquals((short) 0x0041, words[0]);
+        assertEquals((short) 0x0000, words[1]);
+
+        short[] words75 = SmsLittleEndianByteSwapEndianConverter.INSTANCE.floatToShorts(7.5f);
+        assertEquals((short) 0xF040, words75[0]);
+        assertEquals((short) 0x0000, words75[1]);
+    }
 
 } 
