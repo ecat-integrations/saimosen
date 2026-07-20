@@ -560,7 +560,8 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         String deviceClass = (String) context.getEntryData().getOrDefault("class", "");
         String sn = (String) context.getEntryData().getOrDefault("sn", "");
         if (sn == null || sn.isEmpty()) {
-            sn = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+            sn = "AUTO-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+            context.getEntryData().put("sn", sn);
         }
         return VENDOR + "_" + deviceClass + "_" + sn;
     }
