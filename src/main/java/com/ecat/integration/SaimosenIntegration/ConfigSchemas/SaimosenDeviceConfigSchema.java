@@ -29,7 +29,7 @@ import com.ecat.core.ConfigFlow.ConfigSchemaProvider;
  * <ul>
  *   <li>class - 设备类型（必填，使用 DeviceClasses 枚举值）</li>
  *   <li>name - 设备名称（必填）</li>
- *   <li>sn - 序列号（可选）</li>
+ *   <li>sn - 序列号（必填）</li>
  *   <li>vendor - 厂商（自动填充为 "saimosen"）</li>
  *   <li>sampling_tube_length - 采样管长度（可选，QCDevice 专用）</li>
  * </ul>
@@ -57,7 +57,7 @@ public class SaimosenDeviceConfigSchema implements ConfigSchemaProvider {
                 .addOption("air.monitor.so2", "SO2 分析仪")
                 .buildValidator())
             .addField(new TextConfigItem("name", true).displayName("设备名称").length(1, 50))
-            .addField(new TextConfigItem("sn", false).displayName("序列号"))
+            .addField(new TextConfigItem("sn", true).displayName("序列号"))
             .addField(new TextConfigItem("vendor", false).displayName("厂商"))
             .addField(new FloatConfigItem("sampling_tube_length", false)
                 .displayName("采样管长度(m)")

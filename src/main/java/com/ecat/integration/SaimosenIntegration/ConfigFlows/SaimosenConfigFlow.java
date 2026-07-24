@@ -37,7 +37,6 @@ import com.ecat.integration.SerialIntegration.ConfigSchemas.SerialCommConfigSche
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Saimosen 设备配置流程
@@ -115,6 +114,14 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         }
         context.getEntryData().putAll(userInput);
         context.getEntryData().put("vendor", VENDOR);
+        // 尽早生成并排重 uniqueId：SN 在本步提交即唯一确定 uniqueId，提前暴露重名冲突，
+        // 避免用户填完型号/通讯配置到最后才发现冲突（原则：setEntryUniqueId 越早越好，排重要早）。
+        try {
+            context.setEntryUniqueId(generateUniqueId(), getSourceType() == SourceType.RECONFIGURE);
+        } catch (ConfigEntryRegistry.DuplicateUniqueIdException e) {
+            errors.put("sn", "该序列号对应的设备已存在，请修改序列号");
+            return showForm("device_config", schema, errors);
+        }
         // 根据设备类型自动设置硬件型号
         String deviceClass = (String) userInput.get("class");
 //        String model = SaimosenIntegration.classToModel(deviceClass);
@@ -293,17 +300,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         context.getEntryData().put("flow_type", FLOW_TYPE);
         context.getEntryData().put("created_at", DateTimeUtils.now());
 
-        String uniqueId = generateUniqueId();
-
-        boolean isReconfigure = getSourceType() == SourceType.RECONFIGURE;
-        try {
-            context.setEntryUniqueId(uniqueId, isReconfigure);
-        } catch (ConfigEntryRegistry.DuplicateUniqueIdException e) {
-            Map<String, Object> errorMap = new HashMap<>();
-            errorMap.put("confirmed", "设备名称已存在，请修改设备名称");
-            return showForm("final_confirm", createFinalConfirmSchema(), errorMap);
-        }
-
+        // uniqueId 已在 device_config 步提交 SN 后尽早生成并排重（setEntryUniqueId 越早越好），此处不再重复设置。
         String title = (String) context.getEntryData().getOrDefault("name", "Saimosen设备");
         context.setEntryTitle(title);
 
@@ -339,6 +336,10 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         String deviceClass = parts[0].trim();
         String model = parts[1].trim();
         String sn = parts[2].trim();
+        if (sn.isEmpty()) {
+            // SN 必填：堵住 IMPORT_FLOW 这条绕过 web schema 的创建入口，避免空 SN 触发 generateUniqueId 的（已删）随机兜底
+            return ConfigFlowResult.abort("import data 缺少序列号 sn（v1 应为 class|model|sn[|name]），SN 必填");
+        }
         String name = (parts.length > 3 && !parts[3].trim().isEmpty())
                 ? parts[3].trim() : defaultDeviceName(deviceClass);
 
@@ -422,6 +423,9 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
      * 采样管长度在选择质控仪后由 qc_config 步骤收集。
      */
     private ConfigSchema createDeviceBasicSchema() {
+        // reconfigure 时 SN 只读：身份（uniqueId）不可变，防止用户误改 SN 导致 generateUniqueId 重算出不同 uniqueId。
+        // 新建时 SN 可写但必填（见下方 sn 字段 required=true）。
+        boolean isReconfigure = getSourceType() == SourceType.RECONFIGURE;
         return new ConfigSchema()
             .addField(new TextConfigItem("class_type_label", false,
                 "请选择设备类型。支持校准器、质控仪、分析仪等多种 Saimosen 环境监测设备。")
@@ -438,8 +442,9 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
                 .addOption("air.monitor.co", "CO 分析仪")
                 .addOption("air.monitor.so2", "SO2 分析仪")
                 .buildValidator())
-            .addField(new TextConfigItem("sn", false)
-                .displayName("序列号"));
+            .addField(new TextConfigItem("sn", true)
+                .displayName("序列号")
+                .readOnly(isReconfigure));
     }
 
     /**
@@ -550,19 +555,14 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     // ========== 辅助方法 ==========
 
     /**
-     * 生成唯一标识符
-     * <p>
-     * 格式：saimosen_{class}_{sn}
-     * 例如：saimosen_air.monitor.co_SN001
-     * 当 sn 为空时，使用随机 8 位 hex 字符串作为 sn，确保唯一性
+     * 生成唯一标识符：{@code saimosen_{class}_{sn}}，如 {@code saimosen_air.monitor.co_SN001}。
+     * <p>class 与 sn 均为必填字段（createDeviceBasicSchema / stepDiscoveryImportFlow 校验）。
+     * 空 SN 场景已从源头消除（新建必填 + 旧空-SN 设备删除重建），此处不保留任何兼容/兜底/默认值逻辑——
+     * uniqueId 完全由用户必填输入决定。
      */
     private String generateUniqueId() {
-        String deviceClass = (String) context.getEntryData().getOrDefault("class", "");
-        String sn = (String) context.getEntryData().getOrDefault("sn", "");
-        if (sn == null || sn.isEmpty()) {
-            sn = "AUTO-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-            context.getEntryData().put("sn", sn);
-        }
+        String deviceClass = (String) context.getEntryData().get("class");
+        String sn = (String) context.getEntryData().get("sn");
         return VENDOR + "_" + deviceClass + "_" + sn;
     }
 }
