@@ -1,10 +1,10 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
-import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.TextAttribute;
 import com.ecat.core.State.Unit.*;
 import com.ecat.core.Device.DeviceStatus;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
@@ -43,7 +43,20 @@ public class CODevice extends SmsDeviceBase {
         SEGMENT_CONFIG.put("calibration_status", new DataSegment(0x3EE, 1, "校准状态"));  // 1006 - 可读
     }
 
-    private DeviceStatus deviceStatus = DeviceStatus.UNKNOWN;
+    private static final String[] FLOAT_ATTR_NAMES = {
+            "co", "measure_volt", "ref_volt", "measure_dark_current", "ref_dark_current",
+            "slope", "intercept", "sample_press", "pump_press", "sample_flow",
+            "negative_temp_coefficient", "correlation_wheel_temp", "scrubber_temp",
+            "negative_temp_coefficient_corr", "correlation_wheel_temp_corr", "scrubber_temp_corr",
+            "sample_press_corr", "pump_press_corr", "sample_flow_corr", "host_calc_measure_ref"
+    };
+
+    private static final String[] U16_ATTR_NAMES = {
+            "voltage_12v", "voltage_15v", "voltage_3v3", "voltage_5v",
+            "optical_chamber_relay_status", "scrubber_relay_status", "correlation_wheel_relay_status",
+            "sample_cal_relay_status", "auto_zero_value_relay_status", "start_dark_current_test",
+            "start_dark_current_param_storage", "sample_cal_status", "fault_code"
+    };
 
     public CODevice(ConfigEntry entry) {
         super(entry);
@@ -142,32 +155,35 @@ public class CODevice extends SmsDeviceBase {
                             if (spanCalibConcentration != null) successCount++;
                             if (instrumentCalibStatus != null) successCount++;
                             
+                            if (floatData == null) {
+                                log.warn("CODevice " + getId()
+                                        + " - Primary measurement segment failed, skip attribute update (online detection relies on lastUpdated)");
+                                return false;
+                            }
+
                             // 处理校准状态（如果成功读取）
                             if (instrumentCalibStatus != null) {
                                 processCalibrationStatus(instrumentCalibStatus);
                             }
 
-                            // 更新所有属性（允许部分数据为null）
                             updateAllAttributes(floatData, u16Data, spanCalibConcentration, instrumentCalibStatus);
-                            
+                            commitPollState();
+
                             if (successCount == totalCount) {
                                 log.info("CODevice " + getId() + " - All segments updated successfully, device status: " + deviceStatus.getStatusName());
                             } else {
                                 log.warn("CODevice " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
                             }
-                            
-                            // 只要有任何一个数据段成功，就返回true
-                            return successCount > 0;
-                            
+
+                            return true;
+
                         } catch (Exception e) {
                             log.error("CODevice data processing failed: " + e.getMessage());
-                            setAllAttributesStatus(AttributeStatus.MALFUNCTION);
                             return false;
                         }
                     });
         }).exceptionally(throwable -> {
             log.error("CODevice communication failed: " + throwable.getMessage());
-            setAllAttributesStatus(AttributeStatus.MALFUNCTION);
             return false;
         });
     }
@@ -184,11 +200,9 @@ public class CODevice extends SmsDeviceBase {
         return source.readHoldingRegisters(segment.startAddress, segment.count)
                 .thenApply(response -> {
                     short[] data = response.getShortData();
-                    if (data == null) {
-                        log.warn("CODevice " + getId() + " - " + segment.description + " data is null, using default values");
-                        data = new short[segment.count * 2]; // 为float数据预留足够空间
+                    if (data == null || data.length == 0) {
+                        throw new IllegalStateException(segment.description + " data is null or empty");
                     }
-                    log.info("CODevice " + getId() + " - " + segment.description + " received: " + java.util.Arrays.toString(data));
                     return data;
                 });
     }
@@ -215,6 +229,9 @@ public class CODevice extends SmsDeviceBase {
             // 实测 O3 [0xBF3E,0xFB7C]→0.374 见 modbus 集成 RealDeviceByteOrderTest#saimosenO3IsBadc。
             values[i] = Tools.convertLittleEndianByteSwapToFloat(rawData[i*2+1], rawData[i*2]);
         }
+        DataSegment segment = SEGMENT_CONFIG.get("float_params");
+        SmsSegmentLogHelper.logFloatSegment(log, "CODevice", getId(), "float_params",
+                segment.startAddress, rawData, FLOAT_ATTR_NAMES, values);
         return new SegmentData("float_params", values);
     }
 
@@ -229,6 +246,9 @@ public class CODevice extends SmsDeviceBase {
         for (int i = 0; i < values.length; i++) {
             values[i] = rawData[i] & 0xFFFF;
         }
+        DataSegment segment = SEGMENT_CONFIG.get("u16_params");
+        SmsSegmentLogHelper.logU16Segment(log, "CODevice", getId(), "u16_params",
+                segment.startAddress, rawData, U16_ATTR_NAMES, values);
         return new SegmentData("u16_params", values);
     }
 
@@ -241,6 +261,9 @@ public class CODevice extends SmsDeviceBase {
     private SegmentData parseSpanCalibrationConcentration(short[] rawData) {
         double[] values = new double[1];
         values[0] = rawData.length > 0 ? rawData[0] : 0.0;
+        DataSegment segment = SEGMENT_CONFIG.get("span_calibration_start");
+        SmsSegmentLogHelper.logScalarSegment(log, "CODevice", getId(), "span_calibration_start",
+                segment.startAddress, rawData, "calibration_concentration", values[0]);
         return new SegmentData("calibration_concentration", values);
     }
 
@@ -253,6 +276,9 @@ public class CODevice extends SmsDeviceBase {
     private SegmentData parseInstrumentCalibrationStatus(short[] rawData) {
         double[] values = new double[1];
         values[0] = rawData.length > 0 ? rawData[0] : 0;
+        DataSegment segment = SEGMENT_CONFIG.get("calibration_status");
+        SmsSegmentLogHelper.logScalarSegment(log, "CODevice", getId(), "calibration_status",
+                segment.startAddress, rawData, "calibration_status", values[0]);
         return new SegmentData("calibration_status", values);
     }
 
@@ -276,39 +302,18 @@ public class CODevice extends SmsDeviceBase {
      */
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
                                    SegmentData spanCalibConcentration, SegmentData instrumentCalibStatus) {
-        AttributeStatus autoStatus = mapToAttributeStatus(deviceStatus);
-        if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
-            autoStatus = AttributeStatus.MALFUNCTION;
-        }
-        AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", null);
-        updateReadonlyStatusAttribute(STATUS_PREFIX + "_status", baseStatus);
-                                    
-        // 更新float参数（如果数据可用）
-        if (floatData != null) {
-            updateFloatAttributes(floatData.values, baseStatus);
-        } else {
-            // 如果float数据不可用，设置相关属性为故障状态
-            setFloatAttributesStatus(AttributeStatus.MALFUNCTION);
-        }
-        
-        // 更新U16参数（如果数据可用）
+
+        AttributeStatus baseStatus = mapToAttributeStatus(deviceStatus);
+
+        updateFloatAttributes(floatData.values, baseStatus);
+
         if (u16Data != null) {
             updateU16Attributes(u16Data.values, baseStatus);
-        } else {
-            // 如果U16数据不可用，设置相关属性为故障状态
-            setU16AttributesStatus(AttributeStatus.MALFUNCTION);
         }
-        
-        // 更新校准参数（如果数据可用）
+
         if (spanCalibConcentration != null || instrumentCalibStatus != null) {
             updateCalibrationAttributes(spanCalibConcentration, instrumentCalibStatus, baseStatus);
-        } else {
-            // 如果校准数据不可用，设置相关属性为故障状态
-            setCalibrationAttributesStatus(AttributeStatus.MALFUNCTION);
         }
-        
-        // 设置所有属性状态
-        setAllAttributesStatus(baseStatus);
     }
 
     /**
@@ -349,8 +354,8 @@ public class CODevice extends SmsDeviceBase {
     private void updateU16Attributes(double[] values, AttributeStatus status) {
         updateAttribute("voltage_12v", values[0], status);
         updateAttribute("voltage_15v", values[1], status);
-        updateAttribute("voltage_5v", values[2], status);
-        updateAttribute("voltage_3v3", values[3], status);
+        updateAttribute("voltage_3v3", values[2], status);
+        updateAttribute("voltage_5v", values[3], status);
         updateAttribute("optical_chamber_relay_status", values[4], status);
         updateAttribute("scrubber_relay_status", values[5], status);
         updateAttribute("correlation_wheel_relay_status", values[6], status);
@@ -358,8 +363,9 @@ public class CODevice extends SmsDeviceBase {
         updateAttribute("auto_zero_value_relay_status", values[8], status);
         updateAttribute("start_dark_current_test", values[9], status);
         updateAttribute("start_dark_current_param_storage", values[10], status);
-        updateAttribute("fault_code1", values[11], status);
-        updateAttribute("fault_code2", values[12], status);
+        updateAttribute("sample_cal_status", values[11], status);
+        updateAlarmInfo(values[12], SmsAlarmMessages.CO_ACTIVE, status);
+        updateAttribute("fault_code", values[12], status);
     }
 
     /**
@@ -381,62 +387,6 @@ public class CODevice extends SmsDeviceBase {
         updateAttribute("calibration_concentration", calibrationValue, status);
     }
 
-    /**
-     * 设置所有属性状态
-     * 
-     * @param status 属性状态
-     */
-    private void setAllAttributesStatus(AttributeStatus status) {
-        getAttrs().values().forEach(attr -> attr.setStatus(status));
-        publicAttrsState();
-    }
-    
-    /**
-     * 设置float类型属性的状态
-     * @param status 属性状态
-     */
-    private void setFloatAttributesStatus(AttributeStatus status) {
-        // CO设备的float属性
-        String[] floatAttrNames = {"co", "measure_volt", "ref_volt", "measure_dark_current", "ref_dark_current", "sample_press", "sample_temp", "sample_flow", "pump_press", "chamber_press", "o3_flow", "co_slope", "co_intercept", "sample_press_corr", "pump_press_corr", "chamber_press_corr", "sample_temp_corr", "sample_flow_corr", "mo_furnace_temp_corr", "mo_furnace_temp_setting"};
-        
-        for (String attrName : floatAttrNames) {
-            AttributeAbility<?> attr = getAttrs().get(attrName);
-            if (attr != null) {
-                attr.setStatus(status);
-            }
-        }
-    }
-    
-    /**
-     * 设置U16类型属性的状态
-     * @param status 属性状态
-     */
-    private void setU16AttributesStatus(AttributeStatus status) {
-        // CO设备的U16属性
-        String[] u16AttrNames = {"device_address", "device_status", "pmt_high_volt_setting", "sample_temp_volt", "sample_press_volt", "pump_press_volt", "chamber_temp_volt", "chamber_temp", "voltage_12v", "voltage_15v", "voltage_5v", "voltage_3v3", "optical_chamber_relay_status", "scrubber_relay_status", "correlation_wheel_relay_status", "sample_cal_relay_status", "auto_zero_value_relay_status", "start_dark_current_test", "start_dark_current_param_storage", "fault_code1", "fault_code2"};
-        
-        for (String attrName : u16AttrNames) {
-            AttributeAbility<?> attr = getAttrs().get(attrName);
-            if (attr != null) {
-                attr.setStatus(status);
-            }
-        }
-    }
-
-    /**
-     * 设置校准相关属性的状态
-     * @param status 属性状态
-     */
-    private void setCalibrationAttributesStatus(AttributeStatus status) {
-        String[] calibAttrNames = {"calibration_concentration", "calibration_status"};
-        
-        for (String attrName : calibAttrNames) {
-            AttributeAbility<?> attr = getAttrs().get(attrName);
-            if (attr != null) {
-                attr.setStatus(status);
-            }
-        }
-    }
     
     /**
      * 解析设备状态寄存器值
@@ -724,12 +674,12 @@ public class CODevice extends SmsDeviceBase {
                 VoltageUnit.MILLIVOLT,
                 1, false, false));
         setAttribute(new NumericAttribute(
-                "voltage_5v", AttributeClass.VOLTAGE,
+                "voltage_3v3", AttributeClass.VOLTAGE,
                 VoltageUnit.MILLIVOLT,
                 VoltageUnit.MILLIVOLT,
                 1, false, false));
         setAttribute(new NumericAttribute(
-                "voltage_3v3", AttributeClass.VOLTAGE,
+                "voltage_5v", AttributeClass.VOLTAGE,
                 VoltageUnit.MILLIVOLT,
                 VoltageUnit.MILLIVOLT,
                 1, false, false));
@@ -769,12 +719,16 @@ public class CODevice extends SmsDeviceBase {
                 NoConversionUnit.of(""),
                 1, false, true));
         setAttribute(new NumericAttribute(
-                "fault_code1", AttributeClass.TEXT,
+                "sample_cal_status", AttributeClass.TEXT,
                 NoConversionUnit.of(""),
                 NoConversionUnit.of(""),
                 1, false, false));
+        setAttribute(new TextAttribute(
+                "alarm_info", AttributeClass.TEXT,
+                NoConversionUnit.of(""), NoConversionUnit.of(""),
+                false));
         setAttribute(new NumericAttribute(
-                "fault_code2", AttributeClass.TEXT,
+                "fault_code", AttributeClass.TEXT,
                 NoConversionUnit.of(""),
                 NoConversionUnit.of(""),
                 1, false, false));

@@ -7,9 +7,11 @@ import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
+import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StringSelectAttribute;
+import com.ecat.core.State.TextAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -184,11 +186,35 @@ public class CODeviceTest {
         coDevice.init();
     }
 
+    private void mockCalibrationSegmentReads() {
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(new short[] {(short) 0});
+        when(mockCalibResponse.getShortData()).thenReturn(new short[] {(short) 0});
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
+    private boolean isReadonlyDeviceStatusAttr(AttributeBase<?> attr) {
+        String id = attr.getAttrID();
+        return id.endsWith("_manual_status") || id.endsWith("_status");
+    }
+
     private void verifyFloatAttribute(String attrId, double expectedValue) {
         NumericAttribute attr = (NumericAttribute) coDevice.getAttrs().get(attrId);
         assertNotNull("属性 " + attrId + " 应该存在", attr);
         if (attr != null) {
             assertEquals("属性 " + attrId + " 的值应该正确", expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
+        }
+    }
+
+    private void verifyTextAttribute(String attrId, String expectedValue) {
+        TextAttribute attr = (TextAttribute) coDevice.getAttrs().get(attrId);
+        assertNotNull("属性 " + attrId + " 应该存在", attr);
+        if (attr != null) {
+            assertEquals("属性 " + attrId + " 的值应该正确", expectedValue, attr.getState().getValue());
         }
     }
     
@@ -231,8 +257,9 @@ public class CODeviceTest {
         assertNotNull("自动零点阀继电器状态属性应该存在", coDevice.getAttrs().get("auto_zero_value_relay_status"));
         assertNotNull("启动暗电流测试属性应该存在", coDevice.getAttrs().get("start_dark_current_test"));
         assertNotNull("启动暗电流参数存储属性应该存在", coDevice.getAttrs().get("start_dark_current_param_storage"));
-        assertNotNull("故障代码1属性应该存在", coDevice.getAttrs().get("fault_code1"));
-        assertNotNull("故障代码2属性应该存在", coDevice.getAttrs().get("fault_code2"));
+        assertNotNull("采样校准状态属性应该存在", coDevice.getAttrs().get("sample_cal_status"));
+        assertNotNull("报警信息属性应该存在", coDevice.getAttrs().get("alarm_info"));
+        assertNotNull("故障信息属性应该存在", coDevice.getAttrs().get("fault_code"));
 
         // 验证校准相关属性
         assertNotNull("校准浓度属性应该存在", coDevice.getAttrs().get("calibration_concentration"));
@@ -242,7 +269,7 @@ public class CODeviceTest {
         assertNotNull("只读状态属性应该存在", coDevice.getAttrs().get("co_status"));
 
         // 验证属性总数
-        assertEquals("应该有38个属性", 38, coDevice.getAttrs().size());
+        assertEquals("应该有39个属性", 39, coDevice.getAttrs().size());
     }
     
     @Test
@@ -304,10 +331,10 @@ public class CODeviceTest {
         mockU16Registers[0] = (short) 12000;
         // 模拟15V电压值 15000 mV（需要除以10）
         mockU16Registers[1] = (short) 15000;
-        // 模拟5V电压值 5000 mV（需要除以10）
-        mockU16Registers[2] = (short) 5000;
-        // 模拟3.3V电压值 3300 mV（需要除以10）
-        mockU16Registers[3] = (short) 3300;
+        // 模拟3.3V电压值 3300 mV
+        mockU16Registers[2] = (short) 3300;
+        // 模拟5V电压值 5000 mV
+        mockU16Registers[3] = (short) 5000;
         // 模拟光室继电器状态 0（正常）
         mockU16Registers[4] = (short) 0;
         // 模拟涤除器继电器状态 0（正常）
@@ -322,9 +349,9 @@ public class CODeviceTest {
         mockU16Registers[9] = (short) 0;
         // 模拟启动暗电流参数存储 0
         mockU16Registers[10] = (short) 0;
-        // 模拟故障代码1 0
+        // 模拟采样校准状态 0（采样中）
         mockU16Registers[11] = (short) 0;
-        // 模拟故障代码2 0
+        // 模拟故障信息 0
         mockU16Registers[12] = (short) 0;
 
         // 第三段：跨度校准浓度寄存器
@@ -370,8 +397,8 @@ public class CODeviceTest {
         // 验证第二组参数（U16类型）- 这些是简单的整数，容易验证
         verifyFloatAttribute("voltage_12v", 12000.0);
         verifyFloatAttribute("voltage_15v", 15000.0);
-        verifyFloatAttribute("voltage_5v", 5000.0);
         verifyFloatAttribute("voltage_3v3", 3300.0);
+        verifyFloatAttribute("voltage_5v", 5000.0);
         verifyFloatAttribute("optical_chamber_relay_status", 0.0);
         verifyFloatAttribute("scrubber_relay_status", 0.0);
         verifyFloatAttribute("correlation_wheel_relay_status", 0.0);
@@ -379,8 +406,9 @@ public class CODeviceTest {
         verifyFloatAttribute("auto_zero_value_relay_status", 0.0);
         verifyFloatAttribute("start_dark_current_test", 0.0);
         verifyFloatAttribute("start_dark_current_param_storage", 0.0);
-        verifyFloatAttribute("fault_code1", 0.0);
-        verifyFloatAttribute("fault_code2", 0.0);
+        verifyFloatAttribute("sample_cal_status", 0.0);
+        verifyFloatAttribute("fault_code", 0.0);
+        verifyTextAttribute("alarm_info", "");
         
         // 验证校准状态属性
         verifyFloatAttribute("calibration_status", 2.0);
@@ -388,10 +416,11 @@ public class CODeviceTest {
         // 验证校准浓度数值 - 跨度校准模式时应该为400
         verifyFloatAttribute("calibration_concentration", 400.0);
         
-        // 验证所有数据更新过的属性状态为跨度校准（重构后未更新的属性 state 为 null，不在校验范围）
-        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getState().getStatus());
-        });
+        // 验证测量属性状态为跨度校准（排除手动/只读状态属性）
+        coDevice.getAttrs().values().stream()
+                .filter(attr -> attr.getState() != null)
+                .filter(attr -> !isReadonlyDeviceStatusAttr(attr))
+                .forEach(attr -> assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getState().getStatus()));
     }
     
     @Test
@@ -410,10 +439,8 @@ public class CODeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 通讯失败时不更新测量属性
+        assertNull(coDevice.getAttrs().get("co").getState());
     }
 
     @Test
@@ -433,10 +460,8 @@ public class CODeviceTest {
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
         
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 通讯失败时不更新测量属性
+        assertNull(coDevice.getAttrs().get("co").getState());
     }
 
     @Test
@@ -482,8 +507,8 @@ public class CODeviceTest {
         
         // 1. 初始化
         coDevice.init();
-        assertEquals(38, coDevice.getAttrs().size());
-        
+        assertEquals(39, coDevice.getAttrs().size());
+
         // 2. 启动
         coDevice.start();
         verify(mockExecutor, times(1)).scheduleWithFixedDelay(
@@ -556,8 +581,8 @@ public class CODeviceTest {
         // 验证属性更新
         verifyFloatAttribute("voltage_12v", 100.0);
         verifyFloatAttribute("voltage_15v", 101.0);
-        verifyFloatAttribute("voltage_5v", 102.0);
-        verifyFloatAttribute("voltage_3v3", 103.0);
+        verifyFloatAttribute("voltage_3v3", 102.0);
+        verifyFloatAttribute("voltage_5v", 103.0);
         verifyFloatAttribute("calibration_status", 2.0);
     }
     
@@ -579,19 +604,16 @@ public class CODeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(60), eq(13)))
             .thenReturn(failedFuture);
+        mockCalibrationSegmentReads();
         
         // 执行并行读取
         @SuppressWarnings("unchecked")
         CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
-        // 验证结果
-        assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 主测量段成功时仍提交更新（允许部分段失败）
+        assertTrue(result);
+        assertNotNull(coDevice.getAttrs().get("co").getState());
     }
     
     @Test
@@ -617,19 +639,16 @@ public class CODeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(60), eq(13)))
             .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        mockCalibrationSegmentReads();
         
         // 执行并行读取
         @SuppressWarnings("unchecked")
         CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
-        // 验证结果
-        assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        coDevice.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 主测量段成功时仍提交更新（U16 段失败仅跳过该段）
+        assertTrue(result);
+        assertNotNull(coDevice.getAttrs().get("co").getState());
     }
     
     @Test
@@ -964,13 +983,14 @@ public class CODeviceTest {
             // 暗电流测试参数
             TestTools.assertAttributeDisplayName(coDevice, "start_dark_current_test", "启动暗电流测试");
             TestTools.assertAttributeDisplayName(coDevice, "start_dark_current_param_storage", "启动暗电流参数存储");
+            TestTools.assertAttributeDisplayName(coDevice, "sample_cal_status", "采样校准状态");
+            TestTools.assertAttributeDisplayName(coDevice, "alarm_info", "报警信息");
+            TestTools.assertAttributeDisplayName(coDevice, "fault_code", "故障信息");
 
             // 校准相关属性
             TestTools.assertAttributeDisplayName(coDevice, "calibration_concentration", "校准浓度");
             TestTools.assertAttributeDisplayName(coDevice, "calibration_status", "校准状态");
             TestTools.assertAttributeDisplayName(coDevice, "gas_device_command", "气体设备命令");
-            TestTools.assertAttributeDisplayName(coDevice, "fault_code1", "故障代码1");
-            TestTools.assertAttributeDisplayName(coDevice, "fault_code2", "故障代码2");
         } finally {
             // 恢复i18n功能
             ResourceLoader.setLoadI18nResources(true);
@@ -1049,7 +1069,7 @@ public class CODeviceTest {
 
         StringSelectAttribute manualStatusAttr = (StringSelectAttribute) coDevice.getAttrs().get("co_manual_status");
         StringSelectAttribute statusAttr = (StringSelectAttribute) coDevice.getAttrs().get("co_status");
-        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
-        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getState().getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getState().getValue());
     }
 }

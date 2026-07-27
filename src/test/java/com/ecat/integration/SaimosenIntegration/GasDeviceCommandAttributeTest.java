@@ -67,6 +67,10 @@ public class GasDeviceCommandAttributeTest {
         assertEquals("NO2", factory.getGasType());
         Map<String, GasDeviceCommandAttribute.CommandConfig> map = factory.createCommandConfigs();
         assertSpanStartDefaults(map, 400, GasDeviceCommandAttribute.CommandType.SPAN_CALIBRATION_START);
+        GasDeviceCommandAttribute.CommandConfig spanCancel = map.get("span_calibration_cancel");
+        assertNotNull(spanCancel);
+        assertEquals(0x3ED, spanCancel.modbusAddress);
+        assertEquals(400, spanCancel.writeValue);
     }
 
     @Test

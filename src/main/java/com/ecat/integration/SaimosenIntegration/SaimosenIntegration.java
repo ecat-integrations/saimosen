@@ -71,10 +71,12 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         o3Map.put("SMS8400", "SMS8400");
         MODEL_PROTOCOL_MAP.put("SMS8400", Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.o3", o3Map);
-        // 空气质量监测仪
+        // 质控仪：SMS8910 完整协议 V1 / V2
         Map<String, String> qcMap = new HashMap<>();
-        qcMap.put("SMS8910", "SMS8910");
-        MODEL_PROTOCOL_MAP.put("SMS8910", Protocol.MODBUS.name());
+        qcMap.put(SaimosenQCModels.SMS8910, "SMS8910（完整协议 V1，寄存器 0~232）");
+        MODEL_PROTOCOL_MAP.put(SaimosenQCModels.SMS8910, Protocol.MODBUS.name());
+        qcMap.put(SaimosenQCModels.SMS8910V2, "SMS8910V2（完整协议 V2，寄存器 0~244）");
+        MODEL_PROTOCOL_MAP.put(SaimosenQCModels.SMS8910V2, Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.qc", qcMap);
         // PM监测仪
         Map<String, String> pmQcMap = new HashMap<>();
@@ -135,7 +137,11 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
 
                     break;
                 case AIR_MONITOR_QC:
-                    device = new QCDevice(entry);
+                    if (SaimosenQCModels.SMS8910V2.equals(model)) {
+                        device = new QCV2Device(entry);
+                    } else {
+                        device = new QCDevice(entry);
+                    }
                     break;
                 case POWER_SUPPLY_STABILIZER:
                     device = new SmartPowerStabilizer(entry);

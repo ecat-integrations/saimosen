@@ -11,6 +11,7 @@ import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.TextAttribute;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.Unit.LiterFlowUnit;
 import com.ecat.core.State.Unit.PressureUnit;
@@ -50,16 +51,26 @@ public class SO2Device extends SmsDeviceBase {
         SEGMENT_CONFIG.put("calibration_status", new DataSegment(0x3EE, 1, "校准状态"));  // 1006 - 可读
     }
 
-    private DeviceStatus deviceStatus = DeviceStatus.UNKNOWN;
-    
+    private static final String[] FLOAT_ATTR_NAMES = {
+            "measure_volt", "sample_press", "chamber_temp", "sample_flow", "pump_press", "sample_temp",
+            "xe_latp_driving_volt", "slope", "intercept", "sample_press_corr", "pump_press_corr",
+            "chamber_temp_corr", "sample_flow_corr", "chamber_temp_setting", "xe_latp_driving_volt_setting", "so2"
+    };
+
+    private static final String[] U16_ATTR_NAMES = {
+            "device_address", "device_status", "pmt_high_volt_setting", "chamber_temp_volt", "sample_press_volt",
+            "pump_press_volt", "case_temp_volt", "pmt_temp_volt", "case_temp", "voltage_12v", "voltage_15v",
+            "voltage_5v", "voltage_3v3", "pmt_high_volt_read", "reg_14", "reg_15", "reg_16", "reg_17", "reg_18",
+            "sample_cal_valve_status", "auto_zero_value_relay_status", "builtin_pump_status", "case_fan_status",
+            "chamber_status", "alarm_info", "fault_code"
+    };
+
+    private static final long CALIBRATION_WRITE_PROTECTION_MS = 2000; // 2秒保护期
+
     // 防止竞态条件：标记是否正在写入校准浓度
     private volatile boolean isWritingCalibration = false;
-    // 保存最近写入的校准浓度值，避免在写入期间被读取的旧值覆盖
     private volatile Double lastWrittenCalibrationValue = null;
-    // 写入操作的时间戳，用于判断是否在写入后的短时间内
     private volatile long lastCalibrationWriteTime = 0;
-    // 写入保护时间窗口（毫秒），在此时间内使用写入的值而不是读取的值
-    private static final long CALIBRATION_WRITE_PROTECTION_MS = 2000; // 2秒保护期
 
     public SO2Device(ConfigEntry entry) {
         super(entry);
@@ -170,7 +181,7 @@ public class SO2Device extends SmsDeviceBase {
                 1, false, true));
         setAttribute(new NumericAttribute(
                 "pmt_high_volt_setting",
-                AttributeClass.VOLTAGE, VoltageUnit.MILLIVOLT, VoltageUnit.MILLIVOLT,
+                AttributeClass.VOLTAGE, VoltageUnit.VOLT, VoltageUnit.VOLT,
                 1, false, true));
         setAttribute(new NumericAttribute(
                 "chamber_temp_volt",
@@ -214,7 +225,7 @@ public class SO2Device extends SmsDeviceBase {
                 1, false, false));
         setAttribute(new NumericAttribute(
                 "pmt_high_volt_read",
-                AttributeClass.VOLTAGE, VoltageUnit.MILLIVOLT, VoltageUnit.MILLIVOLT,
+                AttributeClass.VOLTAGE, VoltageUnit.VOLT, VoltageUnit.VOLT,
                 1, false, false));
         // 样气温度（重复）
         // 预留
@@ -243,10 +254,10 @@ public class SO2Device extends SmsDeviceBase {
                 "chamber_status",
                 AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, true));
-        setAttribute(new NumericAttribute(
+        setAttribute(new TextAttribute(
                 "alarm_info",
                 AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, false));
+                false));
         setAttribute(new NumericAttribute(
                 "fault_code",
                 AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
@@ -337,28 +348,31 @@ public class SO2Device extends SmsDeviceBase {
                             if (spanCalibConcentration != null) successCount++;
                             if (instrumentCalibStatus != null) successCount++;
                             
-                            // 处理校准状态（如果成功读取）
+                            if (floatData == null) {
+                                log.warn("SO2Device " + getId()
+                                        + " - Primary measurement segment failed, skip attribute update (online detection relies on lastUpdated)");
+                                return false;
+                            }
+
                             if (instrumentCalibStatus != null) {
                                 processCalibrationStatus(instrumentCalibStatus);
                             }
-                            // 更新所有属性（允许部分数据为null）
                             updateAllAttributes(floatData, u16Data, spanCalibConcentration, instrumentCalibStatus);
-                            
+                            commitPollState();
+
                             if (successCount == totalCount) {
                                 log.info("SO2Device " + getId() + " - All segments updated successfully, device status: " + deviceStatus.getStatusName());
                             } else {
                                 log.warn("SO2Device " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
                             }
-                            return successCount > 0; // 只要有任何一个数据段成功，就返回true
+                            return true;
                         } catch (Exception e) {
                             log.error("SO2Device data processing failed: " + e.getMessage());
-                            setAllAttributesStatus(AttributeStatus.MALFUNCTION);
                             return false;
                         }
                     });
         }).exceptionally(throwable -> {
             log.error("SO2Device communication failed: " + throwable.getMessage());
-            setAllAttributesStatus(AttributeStatus.MALFUNCTION);
             return false;
         });
     }
@@ -383,6 +397,9 @@ public class SO2Device extends SmsDeviceBase {
             // 实测 O3 [0xBF3E,0xFB7C]→0.374 见 modbus 集成 RealDeviceByteOrderTest#saimosenO3IsBadc。
             values[i] = Tools.convertLittleEndianByteSwapToFloat(rawData[i*2+1], rawData[i*2]);
         }
+        DataSegment segment = SEGMENT_CONFIG.get("float_params");
+        SmsSegmentLogHelper.logFloatSegment(log, "SO2Device", getId(), "float_params",
+                segment.startAddress, rawData, FLOAT_ATTR_NAMES, values);
         return new SegmentData("float_params", values);
     }
 
@@ -391,18 +408,27 @@ public class SO2Device extends SmsDeviceBase {
         for (int i = 0; i < values.length; i++) {
             values[i] = rawData[i] & 0xFFFF; // 转换为无符号整数
         }
+        DataSegment segment = SEGMENT_CONFIG.get("u16_params");
+        SmsSegmentLogHelper.logU16Segment(log, "SO2Device", getId(), "u16_params",
+                segment.startAddress, rawData, U16_ATTR_NAMES, buildSo2U16DisplayValues(values));
         return new SegmentData("u16_params", values);
     }
 
     private SegmentData parseSpanCalibrationConcentration(short[] rawData) {
         double[] values = new double[1];
         values[0] = rawData[0] & 0xFFFF; // 跨度校准浓度
+        DataSegment segment = SEGMENT_CONFIG.get("span_calibration_start");
+        SmsSegmentLogHelper.logScalarSegment(log, "SO2Device", getId(), "span_calibration_start",
+                segment.startAddress, rawData, "calibration_concentration", values[0]);
         return new SegmentData("calibration_concentration", values);
     }
 
     private SegmentData parseInstrumentCalibrationStatus(short[] rawData) {
         double[] values = new double[1];
         values[0] = rawData[0] & 0xFFFF; // 校准状态
+        DataSegment segment = SEGMENT_CONFIG.get("calibration_status");
+        SmsSegmentLogHelper.logScalarSegment(log, "SO2Device", getId(), "calibration_status",
+                segment.startAddress, rawData, "calibration_status", values[0]);
         return new SegmentData("calibration_status", values);
     }
 
@@ -410,8 +436,21 @@ public class SO2Device extends SmsDeviceBase {
         if (calibData != null && calibData.values.length > 0) {
             short calibStatus = (short) calibData.values[0];
             deviceStatus = parseDeviceStatus(calibStatus);
-            log.info("SO2Device " + getId() + " - Calibration status: " + calibStatus + ", device status: " + deviceStatus.getStatusName());
         }
+    }
+
+    private static double[] buildSo2U16DisplayValues(double[] values) {
+        double[] display = new double[values.length];
+        for (int i = 0; i < values.length; i++) {
+            display[i] = values[i];
+        }
+        if (display.length > 3) display[3] /= 10.0;
+        if (display.length > 4) display[4] /= 10.0;
+        if (display.length > 5) display[5] /= 10.0;
+        if (display.length > 6) display[6] /= 10.0;
+        if (display.length > 7) display[7] /= 10.0;
+        if (display.length > 8) display[8] /= 10.0;
+        return display;
     }
 
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
@@ -423,40 +462,20 @@ public class SO2Device extends SmsDeviceBase {
         AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", null);
         updateReadonlyStatusAttribute(STATUS_PREFIX + "_status", baseStatus);
 
-        // 更新float属性（如果数据可用）
-        if (floatData != null) {
-            updateFloatAttributes(floatData.values, baseStatus);
-        } else {
-            // 如果float数据不可用，设置相关属性为故障状态
-            setFloatAttributesStatus(AttributeStatus.MALFUNCTION);
-        }
+        updateFloatAttributes(floatData.values, baseStatus);
 
-        // 更新U16属性（如果数据可用）
         if (u16Data != null) {
             updateU16Attributes(u16Data.values, baseStatus);
-        } else {
-            // 如果U16数据不可用，设置相关属性为故障状态
-            setU16AttributesStatus(AttributeStatus.MALFUNCTION);
         }
 
-        // 更新校准属性（如果数据可用）
         if (spanCalibConcentration != null || instrumentCalibStatus != null) {
             updateCalibrationAttributes(spanCalibConcentration, instrumentCalibStatus, baseStatus);
-        } else {
-            // 如果校准数据不可用，设置相关属性为故障状态
-            setCalibrationAttributesStatus(AttributeStatus.MALFUNCTION);
         }
-
-        // 设置所有属性状态
-        setAllAttributesStatus(baseStatus);
-        publicAttrsState();
     }
 
     private void updateFloatAttributes(double[] values, AttributeStatus status) {
-        String[] floatAttrNames = {"measure_volt", "sample_press", "chamber_temp", "sample_flow", "pump_press", "sample_temp", "xe_latp_driving_volt", "slope", "intercept", "sample_press_corr", "pump_press_corr", "chamber_temp_corr", "sample_flow_corr", "chamber_temp_setting", "xe_latp_driving_volt_setting", "so2"};
-        
-        for (int i = 0; i < Math.min(values.length, floatAttrNames.length); i++) {
-            updateAttribute(floatAttrNames[i], values[i], status);
+        for (int i = 0; i < Math.min(values.length, FLOAT_ATTR_NAMES.length); i++) {
+            updateAttribute(FLOAT_ATTR_NAMES[i], values[i], status);
         }
     }
 
@@ -465,7 +484,7 @@ public class SO2Device extends SmsDeviceBase {
 
         updateAttribute("device_address", values[0], status);
         updateAttribute("device_status", values[1], status);
-        updateAttribute("pmt_high_volt_setting", values[2], status);
+        updateAttribute("pmt_high_volt_setting", values[2] / 10.0, status);
         updateAttribute("chamber_temp_volt", values[3] / 10.0, status);
         updateAttribute("sample_press_volt", values[4] / 10.0, status);
         updateAttribute("pump_press_volt", values[5] / 10.0, status);
@@ -476,13 +495,13 @@ public class SO2Device extends SmsDeviceBase {
         updateAttribute("voltage_15v", values[10], status);
         updateAttribute("voltage_5v", values[11], status);
         updateAttribute("voltage_3v3", values[12], status);
-        updateAttribute("pmt_high_volt_read", values[13], status);
+        updateAttribute("pmt_high_volt_read", values[13] / 10.0, status);
         updateAttribute("sample_cal_valve_status", values[19], status);
         updateAttribute("auto_zero_value_relay_status", values[20], status);
         updateAttribute("builtin_pump_status", values[21], status);
         updateAttribute("case_fan_status", values[22], status);
         updateAttribute("chamber_status", values[23], status);
-        updateAttribute("alarm_info", values[24], status);
+        updateAlarmInfo(values[24], SmsAlarmMessages.SO2_ACTIVE, status);
         updateAttribute("fault_code", values[25], status);
 
     }
@@ -513,55 +532,6 @@ public class SO2Device extends SmsDeviceBase {
         }
         
         updateAttribute("calibration_concentration", spanCalibValue, status);
-    }
-
-    private void setAllAttributesStatus(AttributeStatus status) {
-        getAttrs().values().forEach(attr -> attr.setStatus(status));
-    }
-    
-    /**
-     * 设置float类型属性的状态
-     * @param status 属性状态
-     */
-    private void setFloatAttributesStatus(AttributeStatus status) {
-        String[] floatAttrNames = {"measure_volt", "sample_press", "chamber_temp", "sample_flow", "pump_press", "sample_temp", "xe_latp_driving_volt", "slope", "intercept", "sample_press_corr", "pump_press_corr", "chamber_temp_corr", "sample_flow_corr", "chamber_temp_setting", "xe_latp_driving_volt_setting", "so2"};
-        
-        for (String attrName : floatAttrNames) {
-            AttributeAbility<?> attr = getAttrs().get(attrName);
-            if (attr != null) {
-                attr.setStatus(status);
-            }
-        }
-    }
-    
-    /**
-     * 设置U16类型属性的状态
-     * @param status 属性状态
-     */
-    private void setU16AttributesStatus(AttributeStatus status) {
-        String[] u16AttrNames = {"device_address", "device_status", "pmt_high_volt_setting", "chamber_temp_volt", "sample_press_volt", "pump_press_volt", "case_temp_volt", "pmt_temp_volt", "case_temp", "voltage_12v", "voltage_15v", "voltage_5v", "voltage_3v3", "pmt_high_volt_read"};
-        
-        for (String attrName : u16AttrNames) {
-            AttributeAbility<?> attr = getAttrs().get(attrName);
-            if (attr != null) {
-                attr.setStatus(status);
-            }
-        }
-    }
-    
-    /**
-     * 设置校准相关属性的状态
-     * @param status 属性状态
-     */
-    private void setCalibrationAttributesStatus(AttributeStatus status) {
-        String[] calibAttrNames = {"calibration_concentration", "calibration_mode", "calibration_status"};
-        
-        for (String attrName : calibAttrNames) {
-            AttributeAbility<?> attr = getAttrs().get(attrName);
-            if (attr != null) {
-                attr.setStatus(status);
-            }
-        }
     }
 
     private DeviceStatus parseDeviceStatus(short statusRegister) {

@@ -5,9 +5,11 @@ import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
+import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StringSelectAttribute;
+import com.ecat.core.State.TextAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -192,6 +194,15 @@ public class SO2DeviceTest {
             fail("Attribute " + attrId + " value is null");
         }
         assertEquals("Attribute " + attrId + " value mismatch", expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
+    }
+
+    private void verifyTextAttribute(String attrId, String expectedValue) {
+        TextAttribute attr = (TextAttribute) so2Device.getAttrs().get(attrId);
+        assertNotNull("Attribute " + attrId + " should not be null", attr);
+        if (attr.getState() == null) {
+            fail("Attribute " + attrId + " state is null");
+        }
+        assertEquals("Attribute " + attrId + " value mismatch", expectedValue, attr.getState().getValue());
     }
     
     @Test
@@ -403,14 +414,14 @@ public class SO2DeviceTest {
         // 验证第二组参数（U16类型）- 根据SO2Device的updateU16Attributes方法，某些电压值需要除以10
         verifyFloatAttribute("device_address", 3.0);
         verifyFloatAttribute("device_status", 0.0);
-        verifyFloatAttribute("pmt_high_volt_setting", 100.0);
+        verifyFloatAttribute("pmt_high_volt_setting", 10.0);
         verifyFloatAttribute("chamber_temp_volt", 250.0); // 2500/10
         verifyFloatAttribute("sample_press_volt", 300.0); // 3000/10
         verifyFloatAttribute("pump_press_volt", 200.0); // 2000/10
         verifyFloatAttribute("case_temp_volt", 150.0); // 1500/10
         verifyFloatAttribute("case_temp", 25.0); // 250/10
         verifyFloatAttribute("pmt_temp_volt", 0.0); // 0/10
-        verifyFloatAttribute("pmt_high_volt_read", 0.0); // 原始值，不除以10
+        verifyFloatAttribute("pmt_high_volt_read", 0.0);
         verifyFloatAttribute("voltage_12v", 12000.0);
         verifyFloatAttribute("voltage_15v", 15000.0);
         verifyFloatAttribute("voltage_5v", 5000.0);
@@ -421,7 +432,7 @@ public class SO2DeviceTest {
         verifyFloatAttribute("builtin_pump_status", 0.0);
         verifyFloatAttribute("case_fan_status", 0.0);
         verifyFloatAttribute("chamber_status", 0.0);
-        verifyFloatAttribute("alarm_info", 0.0);
+        verifyTextAttribute("alarm_info", "");
         verifyFloatAttribute("fault_code", 0.0);
 
         // 验证校准状态属性
@@ -430,10 +441,11 @@ public class SO2DeviceTest {
         // 验证校准浓度数值 - 跨度校准模式时应该为400
         verifyFloatAttribute("calibration_concentration", 400.0);
 
-        // 验证所有数据更新过的属性状态为跨度校准（重构后未更新的属性 state 为 null，不在校验范围）
-        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getState().getStatus());
-        });
+        // 验证测量属性状态为跨度校准（排除手动/只读状态属性）
+        so2Device.getAttrs().values().stream()
+                .filter(attr -> attr.getState() != null)
+                .filter(attr -> !isReadonlyDeviceStatusAttr(attr))
+                .forEach(attr -> assertEquals(AttributeStatus.SPAN_CALIBRATION, attr.getState().getStatus()));
     }
 
     @Test
@@ -441,7 +453,7 @@ public class SO2DeviceTest {
         // 模拟分段读取中第一段失败
         CompletableFuture<ReadHoldingRegistersResponse> failedFuture = new CompletableFuture<>();
         failedFuture.completeExceptionally(new RuntimeException("Modbus communication error"));
-        when(mockModbusSource.readHoldingRegisters(eq(0), eq(20)))
+        when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(failedFuture);
 
         // 执行读取并等待异步操作完成
@@ -451,11 +463,7 @@ public class SO2DeviceTest {
 
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
-
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        assertNull(so2Device.getAttrs().get("so2").getState());
     }
 
     @Test
@@ -464,7 +472,7 @@ public class SO2DeviceTest {
         ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
         when(mockFloatResponse.getShortData()).thenReturn(null); // 返回null会触发异常
 
-        when(mockModbusSource.readHoldingRegisters(eq(0), eq(20)))
+        when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
 
         // 执行读取并等待异步操作完成
@@ -474,11 +482,7 @@ public class SO2DeviceTest {
 
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
-
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        assertNull(so2Device.getAttrs().get("so2").getState());
     }
 
     @Test
@@ -607,7 +611,7 @@ public class SO2DeviceTest {
         // 验证属性更新 - 根据SO2Device的updateU16Attributes方法，某些电压值需要除以10
         verifyFloatAttribute("device_address", 100.0);
         verifyFloatAttribute("device_status", 101.0);
-        verifyFloatAttribute("pmt_high_volt_setting", 102.0);
+        verifyFloatAttribute("pmt_high_volt_setting", 10.2);
         verifyFloatAttribute("chamber_temp_volt", 10.3); // 103/10
         verifyFloatAttribute("sample_press_volt", 10.4); // 104/10
         verifyFloatAttribute("pump_press_volt", 10.5); // 105/10
@@ -618,15 +622,15 @@ public class SO2DeviceTest {
         verifyFloatAttribute("voltage_15v", 110.0); // 110/10
         verifyFloatAttribute("voltage_5v", 111.0); // 111/10
         verifyFloatAttribute("voltage_3v3", 112.0); // 112/10
-        verifyFloatAttribute("pmt_high_volt_read", 113.0); // 原始值，不除以10
+        verifyFloatAttribute("pmt_high_volt_read", 11.3);
         verifyFloatAttribute("calibration_status", 0.0); // 测量模式
     }
 
     @Test
     public void testSegmentedRead_SecondSegmentFailure() throws Exception {
         // 测试第二段读取失败的情况
-        short[] mockFloatRegisters = new short[20];
-        for (int i = 0; i < 20; i++) {
+        short[] mockFloatRegisters = new short[32];
+        for (int i = 0; i < 32; i++) {
             mockFloatRegisters[i] = (short) (i + 1);
         }
 
@@ -640,19 +644,16 @@ public class SO2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
             .thenReturn(failedFuture);
-
+        mockCalibrationSegmentReads();
+        
         // 执行分段读取
         @SuppressWarnings("unchecked")
         CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
         Boolean result = future.get(5, TimeUnit.SECONDS);
 
-        // 验证结果
-        assertFalse(result);
-
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 主测量段成功时仍提交更新（允许部分段失败）
+        assertTrue(result);
+        assertNotNull(so2Device.getAttrs().get("so2").getState());
     }
 
     @Test
@@ -678,19 +679,16 @@ public class SO2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
             .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        mockCalibrationSegmentReads();
 
         // 执行分段读取
         @SuppressWarnings("unchecked")
         CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
-        // 验证结果
-        assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        so2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 主测量段成功时仍提交更新（U16 段失败仅跳过该段）
+        assertTrue(result);
+        assertNotNull(so2Device.getAttrs().get("so2").getState());
     }
     
     @Test
@@ -890,8 +888,8 @@ public class SO2DeviceTest {
 
         StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
         StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
-        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
-        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getState().getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getState().getValue());
     }
 
     @Test
@@ -906,10 +904,10 @@ public class SO2DeviceTest {
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
-        assertEquals(AttributeStatus.MAINTENANCE, so2Attr.getStatus());
+        assertEquals(AttributeStatus.MAINTENANCE, so2Attr.getState().getStatus());
 
         StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
-        assertEquals(AttributeStatus.MAINTENANCE.getName(), statusAttr.getValue());
+        assertEquals(AttributeStatus.MAINTENANCE.getName(), statusAttr.getState().getValue());
     }
 
     @Test
@@ -924,10 +922,10 @@ public class SO2DeviceTest {
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
-        assertEquals(AttributeStatus.CALIBRATION, so2Attr.getStatus());
+        assertEquals(AttributeStatus.CALIBRATION, so2Attr.getState().getStatus());
 
         StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
-        assertEquals(AttributeStatus.CALIBRATION.getName(), statusAttr.getValue());
+        assertEquals(AttributeStatus.CALIBRATION.getName(), statusAttr.getState().getValue());
     }
 
     @Test
@@ -942,10 +940,10 @@ public class SO2DeviceTest {
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
-        assertEquals(AttributeStatus.SPAN_CALIBRATION, so2Attr.getStatus());
+        assertEquals(AttributeStatus.SPAN_CALIBRATION, so2Attr.getState().getStatus());
 
         StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
-        assertEquals(AttributeStatus.SPAN_CALIBRATION.getName(), statusAttr.getValue());
+        assertEquals(AttributeStatus.SPAN_CALIBRATION.getName(), statusAttr.getState().getValue());
     }
 
     @Test
@@ -970,7 +968,7 @@ public class SO2DeviceTest {
     }
 
     private void setupSpanCalibrationReadMocks() {
-        short[] mockFloatRegisters = new short[16];
+        short[] mockFloatRegisters = new short[32];
         short[] mockU16Registers = new short[26];
         short[] mockSpanCalibRegisters = new short[] {(short) 400};
         short[] mockCalibRegisters = new short[] {(short) 2};
@@ -996,7 +994,7 @@ public class SO2DeviceTest {
     }
 
     private void setupMeasureModeReadMocks() {
-        short[] mockFloatRegisters = new short[16];
+        short[] mockFloatRegisters = new short[32];
         short[] mockU16Registers = new short[26];
         short[] mockSpanCalibRegisters = new short[] {(short) 0};
         short[] mockCalibRegisters = new short[] {(short) 0};
@@ -1019,6 +1017,22 @@ public class SO2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
             .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
+    private void mockCalibrationSegmentReads() {
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(new short[] {(short) 0});
+        when(mockCalibResponse.getShortData()).thenReturn(new short[] {(short) 0});
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
+    private boolean isReadonlyDeviceStatusAttr(AttributeBase<?> attr) {
+        String id = attr.getAttrID();
+        return id.endsWith("_manual_status") || id.endsWith("_status");
     }
 
 

@@ -185,11 +185,29 @@ public class O3DeviceTest {
         o3Device.init();
     }
 
+    private void mockCalibrationSegmentReads() {
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(new short[] {(short) 0});
+        when(mockCalibResponse.getShortData()).thenReturn(new short[] {(short) 0});
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+            .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
     private void verifyFloatAttribute(String attrId, double expectedValue) {
         AttributeBase<?> attr = o3Device.getAttrs().get(attrId);
         assertNotNull(attr);
         assertNotNull(attr.getState());
         assertEquals(expectedValue, ((Number) attr.getState().getValue()).doubleValue(), 0.01); // 精度误差±0.01
+    }
+
+    private void verifyTextAttribute(String attrId, String expectedValue) {
+        AttributeBase<?> attr = o3Device.getAttrs().get(attrId);
+        assertNotNull(attr);
+        assertNotNull(attr.getState());
+        assertEquals(expectedValue, attr.getState().getValue());
     }
     
     @Test
@@ -389,7 +407,7 @@ public class O3DeviceTest {
         verifyFloatAttribute("sample_cal_valve_status", 0.0);
         verifyFloatAttribute("builtin_pump_status", 0.0);
         verifyFloatAttribute("case_fan_status", 0.0);
-        verifyFloatAttribute("alarm_info", 0.0);
+        verifyTextAttribute("alarm_info", "");
         verifyFloatAttribute("fault_code", 0.0);
         
         // 验证所有数据更新过的属性状态为正常（重构后未更新的属性 state 为 null，不在校验范围）
@@ -412,11 +430,7 @@ public class O3DeviceTest {
         
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        assertNull(o3Device.getAttrs().get("o3").getState());
     }
 
     @Test
@@ -434,11 +448,7 @@ public class O3DeviceTest {
         
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        assertNull(o3Device.getAttrs().get("o3").getState());
     }
 
     @Test
@@ -568,8 +578,8 @@ public class O3DeviceTest {
     @Test
     public void testSegmentedRead_SecondSegmentFailure() throws Exception {
         // 测试第二段读取失败的情况
-        short[] mockFloatRegisters = new short[20];
-        for (int i = 0; i < 20; i++) {
+        short[] mockFloatRegisters = new short[40];
+        for (int i = 0; i < 40; i++) {
             mockFloatRegisters[i] = (short) (i + 1);
         }
         
@@ -583,18 +593,15 @@ public class O3DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(40), eq(18)))
             .thenReturn(failedFuture);
+        mockCalibrationSegmentReads();
         
         // 执行分段读取
         CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
-        // 验证结果
-        assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 主测量段成功时仍提交更新（允许部分段失败）
+        assertTrue(result);
+        assertNotNull(o3Device.getAttrs().get("o3").getState());
     }
     
     @Test
@@ -620,18 +627,15 @@ public class O3DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(40), eq(18)))
             .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        mockCalibrationSegmentReads();
         
         // 执行分段读取
         CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
-        // 验证结果
-        assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障（重构后未更新的属性 state 为 null，不在校验范围）
-        o3Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            assertEquals(AttributeStatus.MALFUNCTION, attr.getState().getStatus());
-        });
+        // 主测量段成功时仍提交更新（U16 段失败仅跳过该段）
+        assertTrue(result);
+        assertNotNull(o3Device.getAttrs().get("o3").getState());
     }
     
     /**

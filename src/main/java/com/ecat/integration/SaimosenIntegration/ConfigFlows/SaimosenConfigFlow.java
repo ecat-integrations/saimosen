@@ -477,17 +477,6 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     // ========== 设备型号选择步骤 ==========
     private ConfigSchema createDeviceModeBasicSchema(String deviceClass) {
         String defaultName = "Saimosen设备";
-//         .addField(new EnumConfigItem("class", true, "air.monitor.calibrator")
-//                .displayName("设备类型")
-//                .addOption("air.monitor.calibrator", "校准器")
-//                .addOption("air.monitor.qc", "质控仪")
-//                .addOption("power.supply.stabilizer", "智能稳压电源")
-//                .addOption("sample.tube", "采样管")
-//                .addOption("air.monitor.pm.qc", "颗粒物零点校验仪")
-//                .addOption("air.monitor.o3", "O3 分析仪")
-//                .addOption("air.monitor.no2", "NO2 分析仪")
-//                .addOption("air.monitor.co", "CO 分析仪")
-//                .addOption("air.monitor.so2", "SO2 分析仪")
         if(deviceClass.equals("air.monitor.qc")){
             defaultName = "Saimosen质控仪";
         } else if (deviceClass.equals("air.monitor.calibrator")) {
@@ -507,7 +496,17 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         }else if (deviceClass.equals("air.monitor.so2")) {
             defaultName = "Saimosen SO2 分析仪";
         }
-        return new ConfigSchema().addField(new EnumConfigItem("model", true)
+        ConfigSchema schema = new ConfigSchema();
+        // 质控仪：两套完整协议版本，选型时说明差异
+        if (QC_CLASS.equals(deviceClass)) {
+            schema.addField(new TextConfigItem("qc_model_tip", false,
+                    "型号说明（均为完整质控仪协议，非功能子集）：\n"
+                            + "· SMS8910：完整协议 V1，覆盖寄存器 0~232。\n"
+                            + "· SMS8910V2：完整协议 V2，覆盖寄存器 0~244；"
+                            + "在 V1 全部参数基础上扩展智能稳压电源四路 U/I/P（233~244）。")
+                    .displayName("质控仪协议版本说明"));
+        }
+        return schema.addField(new EnumConfigItem("model", true)
                 .displayName("型号")
                 .addOptions(getDeviceModeOptions(deviceClass)))
                 .addField(new TextConfigItem("name", true)
@@ -543,6 +542,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         // 移除说明性字段
         displayData.remove("class_type_label");
         displayData.remove("qc_config_label");
+        displayData.remove("qc_model_tip");
 
         return new ConfigSchema()
             .addField(new YamlConfigItem("config_summary")

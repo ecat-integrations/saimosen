@@ -6,6 +6,7 @@ import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.Integration.IntegrationManager;
 import com.ecat.core.EcatCore;
 import com.ecat.integration.SaimosenIntegration.ConfigSchemas.SaimosenDeviceConfigSchema;
+import com.ecat.integration.SaimosenIntegration.SaimosenQCModels;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -158,7 +159,7 @@ public class SaimosenIntegrationTest {
     @Test
     public void testCreateDeviceFromEntry_QC() {
         // QCDevice requires additional device_settings with sampling_tube_length
-        ConfigEntry entry = createTestEntry("air.monitor.qc", "质控仪", "RTU");
+        ConfigEntry entry = createTestEntry("air.monitor.qc", "质控仪", "RTU", "SMS8910");
         // Add device_settings required by QCDevice.parseConfig()
         Map<String, Object> data = entry.getData();
         Map<String, Object> deviceSettings = new HashMap<>();
@@ -171,7 +172,36 @@ public class SaimosenIntegrationTest {
         com.ecat.core.Device.DeviceBase device = integration.createDeviceFromEntry(entry);
         assertNotNull("Device should be created from valid entry", device);
         assertTrue("Device should be QCDevice", device instanceof QCDevice);
+        assertFalse("SMS8910 should not create QCV2Device", device instanceof QCV2Device);
         assertTrue(device.getUniqueId().startsWith("saimosen_air.monitor.qc"));
+    }
+
+    @Test
+    public void testCreateDeviceFromEntry_QCV2() {
+        ConfigEntry entry = createTestEntry("air.monitor.qc", "质控仪V2", "RTU", "SMS8910V2");
+        Map<String, Object> data = entry.getData();
+        Map<String, Object> deviceSettings = new HashMap<>();
+        deviceSettings.put("sampling_tube_length", 3.0);
+        deviceSettings.put("sampling_tube_inner_diameter", 0.1);
+        data.put("device_settings", deviceSettings);
+
+        setupMockCoreForDeviceCreation();
+
+        com.ecat.core.Device.DeviceBase device = integration.createDeviceFromEntry(entry);
+        assertNotNull("Device should be created from valid entry", device);
+        assertTrue("Device should be QCV2Device", device instanceof QCV2Device);
+        assertTrue(device.getUniqueId().startsWith("saimosen_air.monitor.qc"));
+    }
+
+    @Test
+    public void testClassToModelMap_QC_ContainsV1AndV2() {
+        Map<String, String> qcModels = SaimosenIntegration.classToModelMap("air.monitor.qc");
+        assertTrue(qcModels.containsKey(SaimosenQCModels.SMS8910));
+        assertTrue(qcModels.containsKey(SaimosenQCModels.SMS8910V2));
+        assertTrue(qcModels.get(SaimosenQCModels.SMS8910).contains("完整协议 V1"));
+        assertTrue(qcModels.get(SaimosenQCModels.SMS8910V2).contains("完整协议 V2"));
+        assertEquals(SaimosenIntegration.Protocol.MODBUS.name(),
+                SaimosenIntegration.getProtocolByMode(SaimosenQCModels.SMS8910V2));
     }
 
     @Test

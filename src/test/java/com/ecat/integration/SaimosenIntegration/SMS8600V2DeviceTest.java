@@ -100,6 +100,7 @@ public class SMS8600V2DeviceTest {
         Map<String, Object> data = new HashMap<>();
         ConfigEntry entry = new ConfigEntry.Builder()
             .entryId("test-entry-sms8600v2")
+            .coordinate("com.ecat:integration-saimosen")
             .uniqueId("SMS8600V2TestDevice")
             .data(data)
             .build();
@@ -111,22 +112,21 @@ public class SMS8600V2DeviceTest {
         when(mockSerialIntegration.register(any(), anyString())).thenReturn(mockSerialSource);
         when(mockSerialSource.getTimeout()).thenReturn(500);
 
-        initSMS8600V2Device();
-
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
         when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
+
+        mockBusRegistry = mock(BusRegistry.class);
+        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
+        when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
+
+        initSMS8600V2Device();
 
         when(mockResponseHandlerStrategy.handleResponse(any())).thenAnswer(invocation -> {
             ByteResponseHandlingContext<byte[]> ctx = invocation.getArgument(0);
             return CompletableFuture.completedFuture(invokePrivateMethod(sms8600v2Device, "processResponse", ctx));
         });
 
-        mockBusRegistry = mock(BusRegistry.class);
-        doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
-        when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
-        
-        // 创建真实的 ByteArrayOutputStream 并设置到 context
         realReceiveBuffer = new ByteArrayOutputStream();
         when(context.getReceiveBuffer()).thenReturn(realReceiveBuffer);
     }

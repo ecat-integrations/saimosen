@@ -88,7 +88,7 @@ public class GasDeviceCommandAttribute extends StringCommandAttribute {
             configs.put("zero_calibration_cancel", new CommandConfig(0x3EA, 0, CommandType.ZERO_CALIBRATION_CANCEL, false));
             configs.put("span_calibration_start", new CommandConfig(0x3EB, 400, CommandType.SPAN_CALIBRATION_START, true));
             configs.put("span_calibration_confirm", new CommandConfig(0x3EC, 400, CommandType.SPAN_CALIBRATION_CONFIRM, false));
-            configs.put("span_calibration_cancel", new CommandConfig(0x3ED, 0, CommandType.SPAN_CALIBRATION_CANCEL, false));
+            configs.put("span_calibration_cancel", new CommandConfig(0x3ED, 400, CommandType.SPAN_CALIBRATION_CANCEL, false));
             return configs;
         }
 

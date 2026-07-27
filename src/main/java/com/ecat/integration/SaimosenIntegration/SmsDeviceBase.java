@@ -7,6 +7,8 @@ import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceStatus;
 import com.ecat.core.EcatCore;
+import com.ecat.core.State.AttributeStatus;
+import com.ecat.core.State.TextAttribute;
 import com.ecat.integration.ModbusIntegration.ModbusInfo;
 import com.ecat.integration.ModbusIntegration.ModbusProtocol;
 import com.ecat.core.State.AttributeBase;
@@ -311,5 +313,24 @@ public abstract class SmsDeviceBase extends DeviceBase {
         if (statusAttr instanceof StringSelectAttribute) {
             ((StringSelectAttribute) statusAttr).updateValue(status.getName());
         }
+    }
+
+    /**
+     * 主测量段（float/浓度寄存器）读取成功后再提交属性到总线。
+     * <p>通讯失败或未读到浓度数据时不得调用——否则仅 {@code setStatus} 也会刷新
+     * {@code lastUpdated}，逻辑层 {@code online_status} 无法按超时判离线。
+     */
+    protected void commitPollState() {
+        publicAttrsState();
+    }
+
+    protected void updateTextAttribute(String attrName, String value, AttributeStatus status) {
+        if (getAttrs().get(attrName) instanceof TextAttribute) {
+            ((TextAttribute) getAttrs().get(attrName)).updateValue(value, status);
+        }
+    }
+
+    protected void updateAlarmInfo(double alarmRegister, String[] activeMessages, AttributeStatus status) {
+        updateTextAttribute("alarm_info", SmsAlarmDecoder.decodeActiveAlarms(alarmRegister, activeMessages), status);
     }
 }

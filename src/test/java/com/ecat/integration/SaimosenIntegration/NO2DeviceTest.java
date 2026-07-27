@@ -401,13 +401,7 @@ public class NO2DeviceTest {
         
         // 验证返回值为false（表示异常处理）
         assertFalse(result);
-        
-        // 验证所有数据更新过的属性状态为故障或空（重构后未更新的属性 state 为 null，不在校验范围）
-        no2Device.getAttrs().values().stream().filter(attr -> attr.getState() != null).forEach(attr -> {
-            // 由于所有数据段都失败，属性状态可能是MALFUNCTION或EMPTY
-            assertTrue("Attribute status should be MALFUNCTION or EMPTY",
-                attr.getState().getStatus() == AttributeStatus.MALFUNCTION || attr.getState().getStatus() == AttributeStatus.EMPTY);
-        });
+        assertNull(no2Device.getAttrs().get("no2").getState());
     }
     
      @Test
@@ -734,7 +728,7 @@ public class NO2DeviceTest {
 
         StringSelectAttribute manualStatusAttr = (StringSelectAttribute) no2Device.getAttrs().get("nox_manual_status");
         StringSelectAttribute statusAttr = (StringSelectAttribute) no2Device.getAttrs().get("nox_status");
-        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getValue());
-        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), manualStatusAttr.getState().getValue());
+        assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getState().getValue());
     }
 } 
