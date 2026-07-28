@@ -109,15 +109,15 @@ public class NO2Device extends SmsDeviceBase {
         // NO浓度
         setAttribute(new NumericAttribute(
                 "no", AttributeClass.NO, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
-                1, false, false));
+                3, false, false));
         // NO2浓度
         setAttribute(new NumericAttribute(
                 "no2", AttributeClass.NO2, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
-                1, false, false));
+                3, false, false));
         // NOx浓度
         setAttribute(new NumericAttribute(
                 "nox", AttributeClass.NOX, AirVolumeUnit.PPB, AirVolumeUnit.PPB,
-                1, false, false));
+                3, false, false));
         // NO测量电压
         setAttribute(new NumericAttribute(
                 "no_measure_volt", AttributeClass.VOLTAGE, VoltageUnit.MILLIVOLT, VoltageUnit.MILLIVOLT,

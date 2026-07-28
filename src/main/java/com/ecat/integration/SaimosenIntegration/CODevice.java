@@ -565,7 +565,7 @@ public class CODevice extends SmsDeviceBase {
                 "co", AttributeClass.CO,
                 AirVolumeUnit.PPM,
                 AirVolumeUnit.PPM,
-                1, false, false));
+                3, false, false));
         setAttribute(new NumericAttribute(
                 "measure_volt", AttributeClass.VOLTAGE,
                 VoltageUnit.MILLIVOLT,
