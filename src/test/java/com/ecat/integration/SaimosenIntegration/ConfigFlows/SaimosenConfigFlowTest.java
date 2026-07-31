@@ -21,7 +21,6 @@ import com.ecat.core.ConfigFlow.ConfigItem.AbstractConfigItem;
 import com.ecat.core.ConfigFlow.ConfigFlowResult;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.ConfigFlow.FlowContext;
-import com.ecat.core.ConfigFlow.ImportFlowPayload;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -139,12 +138,5 @@ public class SaimosenConfigFlowTest {
 
     // ===== import payload 校验 SN 非空 =====
 
-    @Test
-    public void testImportFlow_EmptySn_Aborts() {
-        // IMPORT_FLOW payload 空 SN 应 ABORT（堵 web schema 外的入口，避免绕过必填触发随机兜底）
-        ImportFlowPayload payload = new ImportFlowPayload("com.ecat:integration-saimosen", 1,
-                "air.monitor.so2|SMS8200|");  // 第三段 sn 为空
-        ConfigFlowResult result = flow.executeDiscoveryStep(SourceType.IMPORT_FLOW, payload);
-        assertEquals("import payload 空 SN 应 ABORT", ConfigFlowResult.ResultType.ABORT, result.getType());
-    }
+    // testImportFlow_EmptySn_Aborts 已移除：IMPORT_FLOW handler 删除（P2.1），该入口不再存在。
 }
