@@ -102,6 +102,8 @@ public class SampleTube extends SmsDeviceBase {
      * 启动设备数据读取
      */
     public void start() {
+        // 配置派生属性在 id 解析后（start 时机）赋值，确保 state.deviceId 为持久化 id
+        initConfigDerivedAttributeValues();
         readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readRegisters, 0, 5, TimeUnit.SECONDS);
     }
 
@@ -291,17 +293,27 @@ public class SampleTube extends SmsDeviceBase {
                 10
         ));
 
-        // 采样管长度（从 ConfigFlow 配置获取，非 Modbus）
-        NumericAttribute tubeLengthAttr = new NumericAttribute("tube_length", AttributeClass.NUMERIC,
-                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false);
-        tubeLengthAttr.updateValue(deviceConfig.getTubeLength(), AttributeStatus.NORMAL);
-        setAttribute(tubeLengthAttr);
+        // 采样管长度/内径：仅注册，值在 initConfigDerivedAttributeValues（start 时、id 解析后）写入，
+        // 避免构造期 updateValue 因 attr.device 未附着导致 midState 跳过、state 为 null。
+        setAttribute(new NumericAttribute("tube_length", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false));
+        setAttribute(new NumericAttribute("tube_inner_diameter", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false));
+    }
 
-        // 采样管内径（从 ConfigFlow 配置获取，非 Modbus）
-        NumericAttribute tubeDiameterAttr = new NumericAttribute("tube_inner_diameter", AttributeClass.NUMERIC,
-                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false);
-        tubeDiameterAttr.updateValue(deviceConfig.getTubeInnerDiameter(), AttributeStatus.NORMAL);
-        setAttribute(tubeDiameterAttr);
+    /**
+     * 写入配置派生属性（采样管长度/内径）的业务值。在 {@link #start()} 调用——此时设备已过
+     * addDevice/getOrCreate 解析出持久化 id，updateValue 构建的 midState 携带正确 deviceId。
+     */
+    private void initConfigDerivedAttributeValues() {
+        NumericAttribute tubeLengthAttr = (NumericAttribute) getAttrs().get("tube_length");
+        if (tubeLengthAttr != null) {
+            tubeLengthAttr.updateValue(deviceConfig.getTubeLength(), AttributeStatus.NORMAL);
+        }
+        NumericAttribute tubeDiameterAttr = (NumericAttribute) getAttrs().get("tube_inner_diameter");
+        if (tubeDiameterAttr != null) {
+            tubeDiameterAttr.updateValue(deviceConfig.getTubeInnerDiameter(), AttributeStatus.NORMAL);
+        }
     }
 
     /**

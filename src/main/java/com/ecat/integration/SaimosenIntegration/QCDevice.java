@@ -87,6 +87,9 @@ public class QCDevice extends SmsDeviceBase {
 
     @Override
     public void start() {
+        // 配置派生属性在 id 解析后（start 时机）赋值，确保 state.deviceId 为持久化 id
+        initConfigDerivedAttributeValues();
+
         // 每10秒定时读取一次Modbus数据
         readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readRegisters, 0, 5, TimeUnit.SECONDS);
 
@@ -519,24 +522,35 @@ public class QCDevice extends SmsDeviceBase {
     }
 
     /**
-     * 注册非 Modbus、由配置或计算得到的属性。
+     * 注册非 Modbus、由配置或计算得到的属性（仅创建并注册，不赋值）。
+     * <p>配置派生属性的业务值改在 {@link #initConfigDerivedAttributeValues()} 写入——必须在设备 id 解析
+     * （addDevice/getOrCreate）之后：{@code AttributeBase.updateValue} 要求 {@code attr.device != null}，
+     * 且 {@code AttrState.deviceId} 必填持久化 id；构造期 id 尚未解析，此时 updateValue 会跳过 midState
+     * 构建导致 state 为 null。计算属性（residence_time）由 readRegisters 周期重算，无需赋初值。
      */
     private void registerConfigDerivedAttributes() {
-        // 采样管长度（从配置获取，非 Modbus）
-        NumericAttribute tubeLengthAttr = new NumericAttribute("tube_length", "采样管长度", AttributeClass.NUMERIC,
-                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false);
-        tubeLengthAttr.updateValue(deviceConfig.getSamplingTubeLength(), AttributeStatus.NORMAL);
-        setAttribute(tubeLengthAttr);
-
-        // 采样管内径（从配置获取，非 Modbus）
-        NumericAttribute tubeDiameterAttr = new NumericAttribute("tube_inner_diameter", "采样管内径", AttributeClass.NUMERIC,
-                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false);
-        tubeDiameterAttr.updateValue(deviceConfig.getSamplingTubeInnerDiameter(), AttributeStatus.NORMAL);
-        setAttribute(tubeDiameterAttr);
-
-        // 计算参数
+        setAttribute(new NumericAttribute("tube_length", "采样管长度", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false));
+        setAttribute(new NumericAttribute("tube_inner_diameter", "采样管内径", AttributeClass.NUMERIC,
+                NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false));
         setAttribute(new NumericAttribute("sampling_tube_residence_time", AttributeClass.TIME,
                 NoConversionUnit.of("s", "秒"), NoConversionUnit.of("s", "秒"), 1, false, false));
+    }
+
+    /**
+     * 写入配置派生属性的业务值。在 {@link #start()} 调用——此时设备已经过 addDevice/getOrCreate
+     * 解析出持久化 id，{@code updateValue} 构建的 midState 携带正确的 deviceId。
+     * reconfigure 重建设备后走到 start 也会用新配置重写值。
+     */
+    private void initConfigDerivedAttributeValues() {
+        NumericAttribute tubeLengthAttr = (NumericAttribute) getAttrs().get("tube_length");
+        if (tubeLengthAttr != null) {
+            tubeLengthAttr.updateValue(deviceConfig.getSamplingTubeLength(), AttributeStatus.NORMAL);
+        }
+        NumericAttribute tubeDiameterAttr = (NumericAttribute) getAttrs().get("tube_inner_diameter");
+        if (tubeDiameterAttr != null) {
+            tubeDiameterAttr.updateValue(deviceConfig.getSamplingTubeInnerDiameter(), AttributeStatus.NORMAL);
+        }
     }
 
     /**
@@ -777,7 +791,7 @@ public class QCDevice extends SmsDeviceBase {
         if (samplingTubeFlowAttr != null) {
             Double residenceTime = 999.0; // 默认值
             // 从不可变 state 读，getValue 已封装为 protected
-            AttrState samplingTubeFlowState = samplingTubeFlowAttr.getState();
+            AttrState<?> samplingTubeFlowState = samplingTubeFlowAttr.getState();
             Float samplingTubeFlow = samplingTubeFlowState != null ? (Float) samplingTubeFlowState.getValue() : null;
             if( samplingTubeFlow == null || samplingTubeFlow <= 0) {
                 log.warn("采样管流量为0或null，无效，无法计算滞留时间，设置为极大的默认值");

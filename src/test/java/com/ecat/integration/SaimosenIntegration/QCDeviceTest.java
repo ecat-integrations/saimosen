@@ -183,6 +183,27 @@ public class QCDeviceTest {
     }
 
     @Test
+    public void reproduceConfigDerivedAttrStateNotNull() throws Exception {
+        // 配置派生属性经 configflow device_settings 初始化后，state 应非 null。
+        // 修复（方案B）：赋值移到 start()（addDevice/getOrCreate 解析持久化 id 之后）的 initConfigDerivedAttributeValues，
+        // 使 updateValue 时 attr.device 已附着、AttrState.deviceId 为持久化 id。
+        // 这里直接调 initConfigDerivedAttributeValues 等价验证 start 中的赋值步骤（避免触发 readRegisters 异步轮询噪声）。
+        invokePrivateMethod(device, "initConfigDerivedAttributeValues");
+
+        AttributeBase<?> diameter = device.getAttrs().get("tube_inner_diameter");
+        assertNotNull("tube_inner_diameter 属性应存在", diameter);
+        assertNotNull("tube_inner_diameter state 应非 null（configflow 初始化）", diameter.getState());
+
+        AttributeBase<?> length = device.getAttrs().get("tube_length");
+        assertNotNull("tube_length 属性应存在", length);
+        assertNotNull("tube_length state 应非 null（configflow 初始化）", length.getState());
+
+        // 方案B 关键收益：state.deviceId 为设备 id（持久化），而非构造期随机 UUID
+        assertEquals("state.deviceId 应为设备 id", device.getId(), diameter.getState().getDeviceId());
+        assertEquals("采样管内径值应为 configflow 配置值", Double.valueOf(0.1), (Double) diameter.getState().getValue(), 0.0001);
+    }
+
+    @Test
     public void testInit_CreatesCorrectAttributes() {
         // 验证系统状态属性
         assertNotNull(device.getAttrs().get("system_state"));
