@@ -6,6 +6,7 @@ import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeBase;
+import com.ecat.core.State.StateManager;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StringSelectAttribute;
@@ -85,7 +86,12 @@ public class SO2DeviceTest {
         so2Device.load(mockEcatCore);
         
         initDevice();
-    }
+            // markReady 对齐生产时序（init/load 后 markReady，再由轮询驱动 publish）：
+        // 测试直接调 publish 路径（readRegisters/parse/publicAttrsState），未就绪撞就绪门禁
+        // （publicAttrsState 不再吞门禁异常，会原样抛出或被 parse 的 catch 兜成 MALFUNCTION）。
+        when(mockEcatCore.getStateManager()).thenReturn(mock(StateManager.class));
+        so2Device.markReady();
+}
     
     @After
     public void tearDown() throws Exception {

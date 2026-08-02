@@ -83,8 +83,12 @@ public class O3DeviceTest {
         
         // 调用load方法初始化modbusInfo
         o3Device.load(mockEcatCore);
-        
+
         initDevice();
+
+        // 硬门禁：测试绕过框架 createEntry，须手动 markReady 使 phase≥READY，
+        // 否则用户写 led_set_current 等命令走 publish 被门禁拦（生产中框架在 start 前 markReady）。
+        o3Device.markReady();
     }
     
     @After

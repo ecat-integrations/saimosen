@@ -95,6 +95,9 @@ public class SMS8600V2Device extends SerialDeviceBase {
 
     @Override
     public void start() {
+        // 设备工作状态初值在就绪后（phase=READY）发布，避免预 ready 期 publish；
+        // persistable=false 不持久化，重启首轮轮询拿到真实状态即覆盖。
+        getAttrs().get("work_status").setDisplayValue(AttributeStatus.NORMAL.getName());
         this.scheduledFuture = getScheduledExecutor().scheduleWithFixedDelay(() -> {
             SerialTransactionStrategy.executeWithLambda(serialSource, source -> {
                 // 命令之间增加300ms延迟以适应设备性能
@@ -251,7 +254,6 @@ public class SMS8600V2Device extends SerialDeviceBase {
         // 工作状态 解析状态协议23位（2是跨度 1是零点 0正常） 22位（只要不是0说明有报警）
         List<String> options = AttributeStatus.getNames();
         setAttribute(new StringSelectAttribute("work_status",AttributeClass.MODE,true,options));
-        getAttrs().get("work_status").setDisplayValue(AttributeStatus.NORMAL.getName());
 
     }
 
