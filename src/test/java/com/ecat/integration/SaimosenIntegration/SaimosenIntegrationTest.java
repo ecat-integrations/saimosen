@@ -5,8 +5,12 @@ import com.ecat.core.ConfigFlow.AbstractConfigFlow;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.Integration.IntegrationManager;
 import com.ecat.core.EcatCore;
+import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.SaimosenIntegration.ConfigSchemas.SaimosenDeviceConfigSchema;
 import com.ecat.integration.SaimosenIntegration.SaimosenQCModels;
+import com.ecat.integration.SerialIntegration.SerialIntegration;
+import com.ecat.integration.SerialIntegration.SerialSource;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -65,9 +69,40 @@ public class SaimosenIntegrationTest {
     public void tearDown() throws Exception {
         // 重置静态变量，防止影响其他测试类
         SmsDeviceBase.modbusIntegration = null;
+        resetSerialIntegrationStatic();
         if (mockitoCloseable != null) {
             mockitoCloseable.close();
         }
+    }
+
+    // ==================== SMS8600V2 工厂越界 addDevice 测试 ====================
+
+    /**
+     * SMS8600V2 分支不应在 createDeviceFromEntry 内越界 addDevice。
+     *
+     * <p>createDeviceFromEntry 是工厂方法，职责仅"构造 + load + init"，设备注册（addDevice→getOrCreate
+     * 解析稳定 id + registry + persist）由基类 createEntry 统一收口。SMS8600V2 分支曾在工厂内自行
+     * load+init+addDevice+return，导致基类 createEntry 再 addDevice 一次 = 双 publish(DEVICE_LIFECYCLE CREATE)
+     * + 双 persist（devices/registry/matchIndex 因幂等只单条，但事件与持久化重复）。
+     *
+     * <p>本测 spy 集成、stub addDevice 为 no-op（避免未接 registry 时 NPE 掩盖断言），调用工厂后
+     * 断言 addDevice 从未被工厂调用（注册留给 createEntry）。RED：工厂内调了 addDevice（verify never 失败）。
+     */
+    @Test
+    public void testCreateDeviceFromEntry_SMS8600V2_DoesNotRegisterInFactory() throws Exception {
+        ConfigEntry entry = createSMS8600V2Entry();
+        setupMockCoreForSerialDeviceCreation();
+        resetSerialIntegrationStatic();
+
+        SaimosenIntegration spy = spy(integration);
+        // addDevice 返回 boolean；stub 为 no-op，避免越界调用真注册（registry 未接）NPE 掩盖 verify 断言
+        doReturn(false).when(spy).addDevice(any(com.ecat.core.Device.DeviceBase.class));
+
+        com.ecat.core.Device.DeviceBase device = spy.createDeviceFromEntry(entry);
+
+        assertNotNull("SMS8600V2 entry 应创建出设备", device);
+        assertTrue("应为 SMS8600V2Device 实例", device instanceof SMS8600V2Device);
+        verify(spy, never()).addDevice(any(com.ecat.core.Device.DeviceBase.class));
     }
 
     @Test
@@ -442,6 +477,91 @@ public class SaimosenIntegrationTest {
                 .title(deviceName)
                 .data(data)
                 .build();
+    }
+
+    /**
+     * 构造 SMS8600V2（SerialDeviceBase 分支）测试 entry。
+     * <p>comm_settings 为扁平串口字段（SerialDeviceBase.load 直接读 comm_settings.serial_port 等，
+     * 非 modbus 的嵌套 serial_settings）；schema 仅校验 class/name/sn，model/comm_settings 不入 schema。
+     */
+    private ConfigEntry createSMS8600V2Entry() {
+        Map<String, Object> data = new HashMap<>();
+        data.put("class", "air.monitor.calibrator");
+        data.put("name", "SMS8600V2 校准器");
+        data.put("vendor", "saimosen");
+        data.put("sn", "SMS8600V2-SN001");
+        data.put("model", "SMS8600V2");
+
+        Map<String, Object> comm = new HashMap<>();
+        comm.put("serial_port", "/dev/ttyUSB200");
+        comm.put("baudrate", "9600");
+        comm.put("data_bits", "8");
+        comm.put("stop_bits", "1");
+        comm.put("parity", "N");
+        // timeout 经 SerialDeviceBase.load:68 直接 (int) 强转（非 toInt(String)），须为 Integer 非 String
+        comm.put("timeout", 2000);
+        data.put("comm_settings", comm);
+
+        return new ConfigEntry.Builder()
+                .entryId("test-entry-sms8600v2")
+                .coordinate("integration-saimosen")
+                .uniqueId("saimosen_sms8600v2_SN001")
+                .title("SMS8600V2")
+                .data(data)
+                .build();
+    }
+
+    /**
+     * 为 SerialDeviceBase（SMS8600V2）设备创建流程配置 mockCore：
+     * IntegrationRegistry 返回 mock SerialIntegration（"integration-serial"），
+     * register 返回 mock SerialSource；并接 TaskManager/executor 与 BusRegistry（doNothing publish）。
+     */
+    private void setupMockCoreForSerialDeviceCreation() {
+        try {
+            java.lang.reflect.Field coreField = integration.getClass().getSuperclass().getSuperclass().getDeclaredField("core");
+            coreField.setAccessible(true);
+            coreField.set(integration, mockCore);
+
+            com.ecat.core.Integration.IntegrationRegistry mockRegistry =
+                    mock(com.ecat.core.Integration.IntegrationRegistry.class);
+            when(mockCore.getIntegrationRegistry()).thenReturn(mockRegistry);
+
+            // modbus 分支共用此 registry（兼容既有设备），serial 分支取 integration-serial
+            ModbusIntegration mockModbusIntegration = mock(ModbusIntegration.class);
+            ModbusSource mockModbusSource = mock(ModbusSource.class);
+            when(mockRegistry.getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
+            when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
+
+            SerialIntegration mockSerialIntegration = mock(SerialIntegration.class);
+            SerialSource mockSerialSource = mock(SerialSource.class);
+            when(mockRegistry.getIntegration("integration-serial")).thenReturn(mockSerialIntegration);
+            when(mockSerialIntegration.register(any(), anyString())).thenReturn(mockSerialSource);
+            when(mockSerialSource.getTimeout()).thenReturn(500);
+
+            com.ecat.core.Task.TaskManager mockTaskManager = mock(com.ecat.core.Task.TaskManager.class);
+            when(mockCore.getTaskManager()).thenReturn(mockTaskManager);
+            when(mockTaskManager.getExecutorService()).thenReturn(mock(java.util.concurrent.ScheduledExecutorService.class));
+
+            com.ecat.core.Bus.BusRegistry mockBusRegistry = mock(com.ecat.core.Bus.BusRegistry.class);
+            doNothing().when(mockBusRegistry).publish(any(com.ecat.core.Bus.event.BusEvent.class));
+            when(mockCore.getBusRegistry()).thenReturn(mockBusRegistry);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * 重置 SerialDeviceBase.serialIntegration 静态字段，确保 load() 从本测试的 mock registry 重新取值
+     * （静态字段跨测试共享，否则可能残留其他用例的真实/mock 实例跳过 load 内的赋值）。
+     */
+    private void resetSerialIntegrationStatic() {
+        try {
+            java.lang.reflect.Field f = SerialDeviceBase.class.getDeclaredField("serialIntegration");
+            f.setAccessible(true);
+            f.set(null, null);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**

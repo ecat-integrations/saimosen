@@ -1,8 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.ConfigFlow.AbstractConfigFlow;
 import com.ecat.core.ConfigFlow.ConfigSchema;
@@ -116,7 +114,11 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
 
         String deviceClass = (String) entry.getData().get("class");
 
-        SmsDeviceBase device = null;
+        // 类型放宽到 DeviceBase：SMS8600V2Device 继承 SerialDeviceBase（与其它分支的 SmsDeviceBase 共同父类 DeviceBase），
+        // 让 SMS8600V2 分支与其它分支一致——只负责构造，统一落到方法末尾的 load+init。
+        // 工厂方法禁止越界 addDevice：注册（addDevice→getOrCreate 解析稳定 id + registry + persist）
+        // 由基类 createEntry 统一收口，否则会双 publish(DEVICE_LIFECYCLE CREATE) + 双 persist。
+        DeviceBase device = null;
         String model = (String) entry.getData().get("model");
         try {
             DeviceClasses dc = DeviceClasses.getEnum(deviceClass);
@@ -126,11 +128,7 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                         device = new CalibratorDevice(entry);
                     }
                     else if(model.equals("SMS8600V2")){
-                        SerialDeviceBase sms8600v2device = new SMS8600V2Device(entry);
-                        sms8600v2device.load(core);
-                        sms8600v2device.init();
-                        addDevice(sms8600v2device);
-                        return sms8600v2device;
+                        device = new SMS8600V2Device(entry);
                     }else{
                         device = new CalibratorDevice(entry);
                     }
