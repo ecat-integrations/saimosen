@@ -187,7 +187,7 @@ public class NO2DeviceTest {
         no2Device.init();
         
         // 验证属性总数：实际创建了59个属性
-        assertEquals(59, no2Device.getAttrs().size());
+        assertEquals(60, no2Device.getAttrs().size());
         
         // 验证NO浓度相关属性
         assertNotNull(no2Device.getAttrs().get("no"));
@@ -278,6 +278,7 @@ public class NO2DeviceTest {
         for (int i = 0; i < 28; i++) {
             mockU16Registers[i] = (short) (100 + i); // 简单的测试数据
         }
+        mockU16Registers[25] = 0; // 报警寄存器无报警，避免触发 ALARM 状态
 
         // 模拟跨度校准浓度数据
         short[] mockSpanCalibRegisters = new short[1];
@@ -419,6 +420,7 @@ public class NO2DeviceTest {
         for (int i = 0; i < 28; i++) {
             mockU16Registers[i] = (short) (100 + i); // 简单的测试数据
         }
+        mockU16Registers[25] = 0; // 报警寄存器无报警，避免触发 ALARM 状态
 
         // 模拟跨度校准浓度数据
         short[] mockSpanCalibRegisters = new short[1];

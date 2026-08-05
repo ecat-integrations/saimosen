@@ -281,8 +281,9 @@ public class SO2Device extends SmsDeviceBase {
         commandAttr.setDeviceInstance(this); // 设置设备引用，用于防止竞态条件
         setAttribute(commandAttr);
 
-        // 添加手动状态属性
+        // 添加手动状态与通用报警属性（状态优先级：手动 > 报警 > 仪器自动状态）
         addManualStatusAttributes(STATUS_PREFIX);
+        addGeneralAlarmAttribute();
 
         log.info("SO2Device " + getId() + " initialized with " + getAttrs().size() + " attributes");
     }
@@ -459,7 +460,13 @@ public class SO2Device extends SmsDeviceBase {
         if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
             autoStatus = AttributeStatus.MALFUNCTION;
         }
-        AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", null);
+
+        // 先更新报警，再判定状态（优先级：手动 > 报警 > 仪器自动状态）
+        if (u16Data != null) {
+            updateAlarmInfo(u16Data.values[24], SmsAlarmMessages.SO2_ACTIVE, AttributeStatus.NORMAL);
+        }
+
+        AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", "general_alarm");
         updateReadonlyStatusAttribute(STATUS_PREFIX + "_status", baseStatus);
 
         updateFloatAttributes(floatData.values, baseStatus);
@@ -471,6 +478,8 @@ public class SO2Device extends SmsDeviceBase {
         if (spanCalibConcentration != null || instrumentCalibStatus != null) {
             updateCalibrationAttributes(spanCalibConcentration, instrumentCalibStatus, baseStatus);
         }
+        // 属性更新完成后再同步设备级显示状态，避免影响校准浓度等依赖仪器模式的计算
+        syncDeviceStatusIfOverridden(autoStatus, baseStatus);
     }
 
     private void updateFloatAttributes(double[] values, AttributeStatus status) {
@@ -503,7 +512,6 @@ public class SO2Device extends SmsDeviceBase {
         updateAttribute("chamber_status", values[23], status);
         updateAlarmInfo(values[24], SmsAlarmMessages.SO2_ACTIVE, status);
         updateAttribute("fault_code", values[25], status);
-
     }
 
     private void updateCalibrationAttributes(SegmentData spanCalibConcentration, 

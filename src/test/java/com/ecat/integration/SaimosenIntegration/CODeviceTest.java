@@ -265,6 +265,7 @@ public class CODeviceTest {
         assertNotNull("启动暗电流参数存储属性应该存在", coDevice.getAttrs().get("start_dark_current_param_storage"));
         assertNotNull("采样校准状态属性应该存在", coDevice.getAttrs().get("sample_cal_status"));
         assertNotNull("报警信息属性应该存在", coDevice.getAttrs().get("alarm_info"));
+        assertNotNull("通用报警属性应该存在", coDevice.getAttrs().get("general_alarm"));
         assertNotNull("故障信息属性应该存在", coDevice.getAttrs().get("fault_code"));
 
         // 验证校准相关属性
@@ -275,7 +276,7 @@ public class CODeviceTest {
         assertNotNull("只读状态属性应该存在", coDevice.getAttrs().get("co_status"));
 
         // 验证属性总数
-        assertEquals("应该有39个属性", 39, coDevice.getAttrs().size());
+        assertEquals("应该有40个属性", 40, coDevice.getAttrs().size());
     }
     
     @Test
@@ -513,7 +514,7 @@ public class CODeviceTest {
         
         // 1. 初始化
         coDevice.init();
-        assertEquals(39, coDevice.getAttrs().size());
+        assertEquals(40, coDevice.getAttrs().size());
 
         // 2. 启动
         coDevice.start();
@@ -726,6 +727,7 @@ public class CODeviceTest {
         for (int i = 0; i < 13; i++) {
             mockU16Registers[i] = (short) (i + 100);
         }
+        mockU16Registers[12] = 0; // 报警寄存器无报警，避免覆盖跨度校准显示/校准浓度计算
         
         // 测试零点校准状态
         mockSpanCalibRegisters[0] = (short) 0; // 跨度校准浓度（零点校准时为0）

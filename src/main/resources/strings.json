@@ -50,6 +50,11 @@
       },
       "sample_cal_status": "采样校准状态",
       "alarm_info": "报警信息",
+      "general_alarm": "通用报警",
+      "general_alarm_options": {
+        "off": "正常",
+        "on": "报警中"
+      },
       "fault_code": "故障信息",
       "co_manual_status": "手动状态",
       "co_manual_status_options": {
@@ -137,6 +142,11 @@
       "builtin_pump_status": "内置泵状态",
       "case_fan_status": "机箱风扇状态",
       "alarm_info": "报警状态",
+      "general_alarm": "通用报警",
+      "general_alarm_options": {
+        "off": "正常",
+        "on": "报警中"
+      },
       "fault_code": "故障代码",
       "voltage_12v": "12V电压",
       "voltage_15v": "15V电压",
@@ -228,6 +238,11 @@
       "xe_latp_driving_volt": "氙灯驱动电压",
       "xe_latp_driving_volt_setting": "氙灯驱动电压设定值",
       "alarm_info": "报警信息",
+      "general_alarm": "通用报警",
+      "general_alarm_options": {
+        "off": "正常",
+        "on": "报警中"
+      },
       "voltage_12v": "12V电压",
       "voltage_15v": "15V电压",
       "voltage_5v": "5V电压",
@@ -348,6 +363,11 @@
       "chamber_status": "反应室状态",
       "case_fan_status": "机箱风扇状态",
       "alarm_info": "报警信息",
+      "general_alarm": "通用报警",
+      "general_alarm_options": {
+        "off": "正常",
+        "on": "报警中"
+      },
       "fault_code": "故障代码",
       "voltage_12v": "12V电压",
       "voltage_15v": "15V电压",

@@ -341,8 +341,9 @@ public class NO2Device extends SmsDeviceBase {
         commandAttr.setDeviceInstance(this); // 设置设备引用，用于防止竞态条件
         setAttribute(commandAttr);
 
-        // 添加手动状态属性（NO、NO2、NOX 共享状态）
+        // 添加手动状态与通用报警属性（NO、NO2、NOX 共享；优先级：手动 > 报警 > 仪器自动状态）
         addManualStatusAttributes(STATUS_PREFIX);
+        addGeneralAlarmAttribute();
     }
 
     /**
@@ -573,9 +574,18 @@ public class NO2Device extends SmsDeviceBase {
      */
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
                                    SegmentData spanCalibConcentration, SegmentData instrumentCalibStatus) {
+        AttributeStatus autoStatus = mapToAttributeStatus(deviceStatus);
+        if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
+            autoStatus = AttributeStatus.MALFUNCTION;
+        }
 
-        // 根据设备状态映射属性状态
-        AttributeStatus baseStatus = mapToAttributeStatus(deviceStatus);
+        // 先更新报警，再判定状态（优先级：手动 > 报警 > 仪器自动状态）
+        if (u16Data != null) {
+            updateAlarmInfo(u16Data.values[25], SmsAlarmMessages.NOX_ACTIVE, AttributeStatus.NORMAL);
+        }
+
+        AttributeStatus baseStatus = determineAttributeStatus(autoStatus, STATUS_PREFIX + "_manual_status", "general_alarm");
+        updateReadonlyStatusAttribute(STATUS_PREFIX + "_status", baseStatus);
 
         updateFloatAttributes(floatData.values, baseStatus);
 
@@ -586,6 +596,8 @@ public class NO2Device extends SmsDeviceBase {
         if (spanCalibConcentration != null || instrumentCalibStatus != null) {
             updateCalibrationAttributes(spanCalibConcentration, instrumentCalibStatus, baseStatus);
         }
+        // 属性更新完成后再同步设备级显示状态，避免影响校准浓度等依赖仪器模式的计算
+        syncDeviceStatusIfOverridden(autoStatus, baseStatus);
     }
 
     /**

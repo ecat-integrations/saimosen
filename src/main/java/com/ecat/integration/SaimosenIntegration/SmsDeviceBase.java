@@ -13,7 +13,6 @@ import com.ecat.integration.ModbusIntegration.ModbusInfo;
 import com.ecat.integration.ModbusIntegration.ModbusProtocol;
 import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.AttributeClass;
-import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.BinaryAttribute;
 import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.integration.ModbusIntegration.ModbusSerialInfo;
@@ -274,6 +273,14 @@ public abstract class SmsDeviceBase extends DeviceBase {
     }
 
     /**
+     * 添加通用报警二进制属性，供状态优先级判定使用。
+     * 子类在 createAttributes() 中与 {@link #addManualStatusAttributes} 一并调用。
+     */
+    protected void addGeneralAlarmAttribute() {
+        setAttribute(new BinaryAttribute("general_alarm", AttributeClass.GENERAL_ALARM, false));
+    }
+
+    /**
      * 结合手动状态与仪器自动状态，确定最终属性状态
      * 状态优先级：手动设置状态 > 报警状态 > 仪器自动状态
      */
@@ -330,7 +337,42 @@ public abstract class SmsDeviceBase extends DeviceBase {
         }
     }
 
+    /**
+     * 更新报警文本与 {@code general_alarm} 开关。
+     * <p>须在 {@link #determineAttributeStatus} 之前调用，以便报警参与状态优先级判定。
+     */
     protected void updateAlarmInfo(double alarmRegister, String[] activeMessages, AttributeStatus status) {
         updateTextAttribute("alarm_info", SmsAlarmDecoder.decodeActiveAlarms(alarmRegister, activeMessages), status);
+        updateGeneralAlarm(alarmRegister, status);
+    }
+
+    /**
+     * 根据报警寄存器更新 {@code general_alarm}：非零则开启，否则关闭。
+     */
+    protected void updateGeneralAlarm(double alarmRegister, AttributeStatus status) {
+        AttributeBase<?> attr = getAttrs().get("general_alarm");
+        if (attr instanceof BinaryAttribute) {
+            BinaryAttribute generalAlarm = (BinaryAttribute) attr;
+            AttributeStatus alarmStatus = status != null ? status : AttributeStatus.NORMAL;
+            if (((int) alarmRegister & 0xFFFF) != 0) {
+                generalAlarm.turnOn(alarmStatus);
+            } else {
+                generalAlarm.turnOff(alarmStatus);
+            }
+        }
+    }
+
+    /**
+     * 当手动状态或报警覆盖了仪器自动状态时，同步更新设备级显示状态。
+     * <p>若未覆盖（resolved == auto），保留校准寄存器解析出的 {@code deviceStatus}
+     * （如 MEASURE / ZERO_CALIBRATION / SPAN_CALIBRATION）。
+     */
+    protected void syncDeviceStatusIfOverridden(AttributeStatus autoStatus, AttributeStatus resolvedStatus) {
+        if (resolvedStatus != null && resolvedStatus != autoStatus) {
+            DeviceStatus mapped = mapAttributeStatusToDeviceStatus(resolvedStatus);
+            if (mapped != null && mapped != DeviceStatus.UNKNOWN) {
+                this.deviceStatus = mapped;
+            }
+        }
     }
 }

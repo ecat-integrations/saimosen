@@ -8,6 +8,7 @@ import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.StateManager;
 import com.ecat.core.State.AttributeStatus;
+import com.ecat.core.State.BinaryAttribute;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.TextAttribute;
@@ -257,6 +258,7 @@ public class SO2DeviceTest {
         assertNotNull("机箱风扇状态属性应该存在", so2Device.getAttrs().get("case_fan_status"));
         assertNotNull("反应室加热状态属性应该存在", so2Device.getAttrs().get("chamber_status"));
         assertNotNull("报警信息属性应该存在", so2Device.getAttrs().get("alarm_info"));
+        assertNotNull("通用报警属性应该存在", so2Device.getAttrs().get("general_alarm"));
         assertNotNull("故障代码属性应该存在", so2Device.getAttrs().get("fault_code"));
 
         // 验证校准相关属性
@@ -267,7 +269,7 @@ public class SO2DeviceTest {
         assertNotNull("只读状态属性应该存在", so2Device.getAttrs().get("so2_status"));
 
         // 验证属性总数
-        assertEquals("应该有42个属性", 42, so2Device.getAttrs().size());
+        assertEquals("应该有43个属性", 43, so2Device.getAttrs().size());
     }
     
     @Test
@@ -547,7 +549,7 @@ public class SO2DeviceTest {
 
         // 1. 初始化
         so2Device.init();
-        assertEquals(42, so2Device.getAttrs().size());
+        assertEquals(43, so2Device.getAttrs().size());
 
         // 2. 启动
         so2Device.start();
@@ -953,6 +955,50 @@ public class SO2DeviceTest {
     }
 
     @Test
+    public void testAlarmStatusPriority_OverDeviceCalibrationStatus() throws Exception {
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+        manualStatusAttr.updateValue(AttributeStatus.NORMAL.getName());
+
+        setupSpanCalibrationReadMocksWithAlarm((short) 0x0001);
+
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        future.get(5, TimeUnit.SECONDS);
+
+        NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
+        assertEquals(AttributeStatus.ALARM, so2Attr.getState().getStatus());
+
+        StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
+        assertEquals(AttributeStatus.ALARM.getName(), statusAttr.getState().getValue());
+
+        BinaryAttribute generalAlarm = (BinaryAttribute) so2Device.getAttrs().get("general_alarm");
+        assertTrue(generalAlarm.isOn());
+        assertEquals(com.ecat.core.Device.DeviceStatus.ALARM, so2Device.getDeviceStatus());
+    }
+
+    @Test
+    public void testManualStatusPriority_OverAlarmStatus() throws Exception {
+        StringSelectAttribute manualStatusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_manual_status");
+        manualStatusAttr.updateValue(AttributeStatus.MAINTENANCE.getName());
+
+        setupSpanCalibrationReadMocksWithAlarm((short) 0x0001);
+
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        future.get(5, TimeUnit.SECONDS);
+
+        NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
+        assertEquals(AttributeStatus.MAINTENANCE, so2Attr.getState().getStatus());
+
+        StringSelectAttribute statusAttr = (StringSelectAttribute) so2Device.getAttrs().get("so2_status");
+        assertEquals(AttributeStatus.MAINTENANCE.getName(), statusAttr.getState().getValue());
+
+        BinaryAttribute generalAlarm = (BinaryAttribute) so2Device.getAttrs().get("general_alarm");
+        assertTrue("报警位仍应开启，但显示状态由手动覆盖", generalAlarm.isOn());
+        assertEquals(com.ecat.core.Device.DeviceStatus.MAINTENANCE, so2Device.getDeviceStatus());
+    }
+
+    @Test
     public void testSO2ManualStatusOptionsI18n() throws Exception {
         ResourceLoader.setLoadI18nResources(false);
 
@@ -974,8 +1020,13 @@ public class SO2DeviceTest {
     }
 
     private void setupSpanCalibrationReadMocks() {
+        setupSpanCalibrationReadMocksWithAlarm((short) 0);
+    }
+
+    private void setupSpanCalibrationReadMocksWithAlarm(short alarmRegister) {
         short[] mockFloatRegisters = new short[32];
         short[] mockU16Registers = new short[26];
+        mockU16Registers[24] = alarmRegister;
         short[] mockSpanCalibRegisters = new short[] {(short) 400};
         short[] mockCalibRegisters = new short[] {(short) 2};
 

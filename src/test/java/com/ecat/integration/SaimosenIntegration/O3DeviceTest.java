@@ -259,12 +259,13 @@ public class O3DeviceTest {
         assertNotNull("内置泵状态属性应该存在", o3Device.getAttrs().get("builtin_pump_status"));
         assertNotNull("机箱风扇状态属性应该存在", o3Device.getAttrs().get("case_fan_status"));
         assertNotNull("报警信息属性应该存在", o3Device.getAttrs().get("alarm_info"));
+        assertNotNull("通用报警属性应该存在", o3Device.getAttrs().get("general_alarm"));
         assertNotNull("故障代码属性应该存在", o3Device.getAttrs().get("fault_code"));
         assertNotNull("手动状态属性应该存在", o3Device.getAttrs().get("o3_manual_status"));
         assertNotNull("只读状态属性应该存在", o3Device.getAttrs().get("o3_status"));
 
         // 验证属性总数
-        assertEquals("应该有43个属性", 43, o3Device.getAttrs().size());
+        assertEquals("应该有44个属性", 44, o3Device.getAttrs().size());
     }
     
     @Test
@@ -508,7 +509,7 @@ public class O3DeviceTest {
         
         // 1. 初始化
         o3Device.init();
-        assertEquals(43, o3Device.getAttrs().size());
+        assertEquals(44, o3Device.getAttrs().size());
         
         // 2. 启动
         o3Device.start();
