@@ -272,6 +272,25 @@ public class SaimosenIntegrationTest {
         assertTrue(device.getUniqueId().startsWith("saimosen_air.monitor.pm.qc"));
     }
 
+    @Test
+    public void testCreateDeviceFromEntry_SMS8700PM() {
+        ConfigEntry entry = createTestEntry("air.monitor.pm", "SMS8700颗粒物监测仪", "RTU", "SMS8700");
+        setupMockCoreForDeviceCreation();
+
+        com.ecat.core.Device.DeviceBase device = integration.createDeviceFromEntry(entry);
+        assertNotNull("Device should be created from valid entry", device);
+        assertTrue("Device should be SMS8700PMDevice", device instanceof SMS8700PMDevice);
+        assertTrue(device.getUniqueId().startsWith("saimosen_air.monitor.pm"));
+    }
+
+    @Test
+    public void testClassToModelMap_PM_ContainsSMS8700() {
+        Map<String, String> pmModels = SaimosenIntegration.classToModelMap("air.monitor.pm");
+        assertTrue(pmModels.containsKey("SMS8700"));
+        assertEquals(SaimosenIntegration.Protocol.MODBUS.name(),
+                SaimosenIntegration.getProtocolByMode("SMS8700"));
+    }
+
     // ==================== 异常场景测试 ====================
 
     @Test

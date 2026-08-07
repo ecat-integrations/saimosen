@@ -14,11 +14,14 @@
 | `air.monitor.qc` | SMS8910V2 | QCV2Device | Modbus RTU | 质控仪 V2（起始地址 0~244，含稳压电源参数） |
 | `air.monitor.calibrator` | SMS8600V1 | CalibratorDevice | Modbus RTU | 动态气体校准仪 V1 |
 | `air.monitor.calibrator` | SMS8600V2 | SMS8600V2Device | 串口 | 动态气体校准仪 V2（非 Modbus） |
+| `air.monitor.pm` | SMS8700 | SMS8700PMDevice | Modbus RTU | 多粒径颗粒物自动监测仪  |
 | `air.monitor.pm.qc` | SMS8220 | ParticulateZeroChecker | Modbus RTU | 颗粒物零点检查仪 |
 | `power.supply.stabilizer` | IRP0501B | SmartPowerStabilizer | Modbus RTU | 智能电力稳压器 |
 | `sample.tube` | SMS6930 | SampleTube | Modbus RTU | 采样管加热器 |
 
-四参数分析仪（SO₂/CO/NOx/O₃）轮询周期为 **5 秒**；质控仪、校准仪为 **5 秒**；采样管加热器为 **5 秒**。
+四参数分析仪（SO₂/CO/NOx/O₃）轮询周期为 **5 秒**；SMS8700 颗粒物监测仪为 **10 秒**；质控仪、校准仪为 **5 秒**；采样管加热器为 **5 秒**。
+
+> SMS8700 同时暴露 `pm10` / `pm2.5` / `pm1` / `pm4` 等浓度属性
 
 ---
 
@@ -42,12 +45,13 @@
 > 质控仪额外配置：`device_settings.sampling_tube_length: 4.5`（采样管长度，单位米）。
 
 ### 监测仪器
-| 设备 ID | 名称 | class | 型号 | 串口 | 波特率 | Slave ID |
-|---------|------|-------|------|------|--------|----------|
+| 设备 ID | 名称 | class | 型号 | 串口 | 波特率 | Slave ID | 超时(ms) |
+|---------|------|-------|------|------|--------|----------|----------|
 | sms-so2 | SO2监测仪 | air.monitor.so2 | SMS8200 | COM3 | 9600 | **4** | — |
 | sms-no2 | NO2监测仪 | air.monitor.no2 | SMS8300 | COM6 | 9600 | **2** | 2000 |
 | sms-o3 | O3监测仪 | air.monitor.o3 | SMS8400 | COM4 | 9600 | **3** | — |
 | sms-co | CO监测仪 | air.monitor.co | SMS8500 | COM5 | 9600 | **1** | — |
+| sms-pm | 颗粒物监测仪 | air.monitor.pm | SMS8700 | COM7 | 9600 | **1** | 2000 |
 
 
 
@@ -305,6 +309,85 @@ Float 参数为大端序，占 2 个连续寄存器。
 
 ---
 
+## 多粒径颗粒物监测仪 (SMS8700 / SMS8700PMDevice)
+
+**Slave ID（示例配置）：1**　**波特率：9600**　**轮询：5 秒**
+
+对接仪器 **Modbus RTU 从站对外输出协议 v1.2**（仪器被动响应，ECAT 为主站）。  
+一次读取保持寄存器 **0~27**（共 28 个），功能码 **0x03**（或 **0x04**，内容相同）。  
+Float 为 IEEE754 **大端（Big-Endian）**，占 2 个连续寄存器；与四参数分析仪的 BADC 字序不同。
+
+设备为只读从站，**不支持**写寄存器（0x06 / 0x10）。
+
+### 参数寄存器地址
+
+| 属性 ID | 名称 | 起始地址(Dec) | 起始地址(Hex) | 类型 | 寄存器数 | 单位 | 说明 |
+|---------|------|---------------|---------------|------|----------|------|------|
+| pm1 | PM1浓度 | 0 | 0x0000 | Float BE | 2 | µg/m³ | 浓度校准后 |
+| pm2_5 | PM2.5浓度 | 2 | 0x0002 | Float BE | 2 | µg/m³ | 浓度校准后 |
+| pm4 | PM4浓度 | 4 | 0x0004 | Float BE | 2 | µg/m³ | 浓度校准后 |
+| pm10 | PM10浓度 | 6 | 0x0006 | Float BE | 2 | µg/m³ | 浓度校准后 |
+| pm_tot | 总颗粒物浓度 | 8 | 0x0008 | Float BE | 2 | µg/m³ | 浓度校准后 |
+| data_valid | PM数据有效 | 10 | 0x000A | U16 | 1 | — | 1=有效且未超时；0=无效 |
+| seconds_since_pm | 距上次PM更新秒数 | 11 | 0x000B | U16 | 1 | s | 无效时为 0xFFFF |
+| map_version | 寄存器映射版本 | 12 | 0x000C | U16 | 1 | — | 当前协议默认 3 |
+| device_status_bits | 设备状态位 | 13 | 0x000D | U16 | 1 | — | 见下表 |
+| sample_flow | 样气流量 | 14 | 0x000E | Float BE | 2 | L/min | 需 CTRL_VALID |
+| sample_temp | 样气温度 | 16 | 0x0010 | Float BE | 2 | °C | 校准后 |
+| sample_humidity | 样气湿度 | 18 | 0x0012 | Float BE | 2 | %RH | 校准后 |
+| ambient_temperature | 环境温度 | 20 | 0x0014 | Float BE | 2 | °C | 校准后 |
+| ambient_humidity | 环境湿度 | 22 | 0x0016 | Float BE | 2 | %RH | 校准后 |
+| barometric_pressure | 大气压 | 24 | 0x0018 | Float BE | 2 | kPa | — |
+| slave_addr_echo | 从站地址回读 | 26 | 0x001A | U16 | 1 | — | 配置地址回读 |
+| （保留） | — | 27 | 0x001B | U16 | 1 | — | 读为 0 |
+
+### DEVICE_STATUS 位定义（寄存器 13）
+
+| 位 | 名称 | 说明 |
+|----|------|------|
+| bit0 | PM_VALID | 曾成功收到 PM 数据 |
+| bit1 | CTRL_VALID | 曾成功收到控制板工况数据 |
+| bit2 | PM_STALE | PM 数据超过超时阈值未更新（默认约 120 s） |
+| bit3~15 | — | 保留为 0 |
+
+**有效性处理（实现侧）：**
+
+- `DATA_VALID=0` 或 `PM_STALE` 置位时，PM 浓度属性标为 `MALFUNCTION`，不作为有效浓度上报。
+- 工况 Float 无单独 VALID 位，结合 `CTRL_VALID`（bit1）判定；控制板无效时工况属性标为 `MALFUNCTION`。
+
+另有状态属性：`pm_manual_status`（手动状态）、`pm_status`（运行状态）、`general_alarm`（通用报警）。
+
+### 逻辑设备映射
+
+| 逻辑设备类型 | Mapping 类 | 绑定物理属性 |
+|--------------|------------|--------------|
+| LogicDevice-PM10 | `PM10DeviceMapping_SMS8700` | `pm10` → `pm_concentration`，以及流量/环境温湿度/气压/样气温湿度等 |
+| LogicDevice-PM25 | `PM25DeviceMapping_SMS8700` | `pm2_5` → `pm_concentration`，工况映射同上 |
+
+同一物理设备（`model=SMS8700`）可同时挂接 PM10 与 PM2.5 逻辑设备。
+
+### 串口调试示例（Slave ID = 1）
+
+```
+# 一次读取全部（起始地址 0，28 个寄存器）
+发送：01 03 00 00 00 1C 44 03
+
+# 只读 PM（起始地址 0，10 个寄存器：PM1~PMtot）
+发送：01 03 00 00 00 0A C5 CD
+
+# 只读工况（起始地址 14，14 个寄存器）
+发送：01 03 00 0E 00 0E A5 CD
+
+# 功能码 0x04 读全部（数据与 0x03 相同）
+发送：01 04 00 00 00 1C F1 C3
+```
+
+Float 解码：读出高字 `Rhi`、低字 `Rlo`，按字节序 `Rhi>>8, Rhi&0xFF, Rlo>>8, Rlo&0xFF` 拼为 IEEE754 大端 4 字节。
+
+协议文档示例：PM2.5 = 5.98 µg/m³ → 字节 `40 BF 5C 29` → 寄存器 2=`0x40BF`(16575)、寄存器 3=`0x5C29`(23593)。
+
+---
+
 ## 颗粒物零点检查仪 (SMS8220 / ParticulateZeroChecker)
 
 **Slave ID（示例配置）：5**　**波特率：19200**
@@ -397,9 +480,15 @@ Float 参数为大端序，占 2 个连续寄存器。
 ## 注意事项
 
 1. 串口命名：Windows 为 `COMn`，Linux 为 `/dev/ttyUSBn` 或 `/dev/ttySn`。
-2. 同一 RS485 总线上各设备 **Slave ID 不可重复**；示例配置中 CO 与质控仪、校准仪均为 Slave ID 1，需接在不同串口上。
-3. 四参数分析仪 Float 字节序为 BADC，与质控仪/校准仪的大端 Float 不同，调试时注意区分。
+2. 同一 RS485 总线上各设备 **Slave ID 不可重复**；示例配置中 CO 与质控仪、校准仪、SMS8700 示例均为 Slave ID 1，需接在不同串口上。
+3. 四参数分析仪 Float 字节序为 **BADC**；质控仪/校准仪/SMS8700 为 **大端 Float**，调试时注意区分。
 4. 校准相关操作请优先通过 `dispatch_command`（或 CO 的 `gas_device_command`）属性下发，避免直接写错寄存器。
+5. SMS8700 为只读从站，勿对其写寄存器；设备侧浓度更新频率为10s一次，数采侧本集成接入多粒径颗粒物的轮询周期也设置为了10s。协议接入的是实时数据，请与设备首页实时更新的数据做对比，因采集轮询可能数采侧看到的数据可能较设备延后。
+
+---
+
+## 型号接入状态
+- 新增SMS8700设备实时浓度协议已接入，已真机调试（交叉线）
 
 ## 协议声明
 

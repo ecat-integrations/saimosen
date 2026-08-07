@@ -17,8 +17,8 @@ import com.ecat.integration.SaimosenIntegration.ConfigSchemas.SaimosenDeviceConf
  * <p>Key Features:</p>
  * <ul>
  *   <li>Configuration via ConfigFlow with ConfigEntry-based device creation.</li>
- *   <li>Supports 9 device classes: Calibrator, QC, SmartPowerStabilizer, SampleTube,
- *       ParticulateZeroChecker, O3, NO2, CO, SO2.</li>
+ *   <li>Supports device classes: Calibrator, QC, SmartPowerStabilizer, SampleTube,
+ *       ParticulateZeroChecker, PM (SMS8700), O3, NO2, CO, SO2.</li>
  *   <li>Lifecycle management delegated to parent class IntegrationDeviceBase.</li>
  * </ul>
  *
@@ -76,7 +76,12 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         qcMap.put(SaimosenQCModels.SMS8910V2, "SMS8910V2（完整协议 V2，寄存器 0~244）");
         MODEL_PROTOCOL_MAP.put(SaimosenQCModels.SMS8910V2, Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.qc", qcMap);
-        // PM监测仪
+        // PM 监测仪（多粒径）
+        Map<String, String> pmMap = new HashMap<>();
+        pmMap.put("SMS8700", "SMS8700（多粒径颗粒物自动监测仪）");
+        MODEL_PROTOCOL_MAP.put("SMS8700", Protocol.MODBUS.name());
+        CLASS_MODEL_MAP.put("air.monitor.pm", pmMap);
+        // PM 零点校验仪
         Map<String, String> pmQcMap = new HashMap<>();
         pmQcMap.put("SMS8220", "SMS8220");
         MODEL_PROTOCOL_MAP.put("SMS8220", Protocol.MODBUS.name());
@@ -146,6 +151,9 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                     break;
                 case SAMPLE_TUBE:
                     device = new SampleTube(entry);
+                    break;
+                case AIR_MONITOR_PM:
+                    device = new SMS8700PMDevice(entry);
                     break;
                 case AIR_MONITOR_PM_QC:
                     device = new ParticulateZeroChecker(entry);

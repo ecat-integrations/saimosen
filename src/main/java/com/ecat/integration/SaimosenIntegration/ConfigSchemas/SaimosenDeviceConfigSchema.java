@@ -50,6 +50,7 @@ public class SaimosenDeviceConfigSchema implements ConfigSchemaProvider {
                 .addOption("air.monitor.qc", "质控仪")
                 .addOption("power.supply.stabilizer", "智能稳压电源")
                 .addOption("sample.tube", "采样管")
+                .addOption("air.monitor.pm", "颗粒物监测仪")
                 .addOption("air.monitor.pm.qc", "颗粒物零点校验仪")
                 .addOption("air.monitor.o3", "O3 分析仪")
                 .addOption("air.monitor.no2", "NO2 分析仪")
