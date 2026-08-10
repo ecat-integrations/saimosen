@@ -126,7 +126,10 @@ public abstract class SerialDeviceBase extends DeviceBase {
     }
 
     // 将AttributeStatus映射到DeviceStatus的方法
-    protected DeviceStatus mapToDeviceStatus(AttributeStatus attrStatus) {
+    protected static DeviceStatus mapToDeviceStatus(AttributeStatus attrStatus) {
+        if (attrStatus == null) {
+            return DeviceStatus.UNKNOWN;
+        }
         switch (attrStatus) {
             case NORMAL:
                 return DeviceStatus.NORMAL;

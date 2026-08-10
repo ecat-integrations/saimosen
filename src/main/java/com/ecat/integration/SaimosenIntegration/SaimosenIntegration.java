@@ -104,6 +104,7 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                                                                 DeviceClasses.AIR_MONITOR_QC.getClassName(),
                                                                 DeviceClasses.POWER_SUPPLY_STABILIZER.getClassName(),
                                                                 DeviceClasses.SAMPLE_TUBE.getClassName(),
+                                                                DeviceClasses.AIR_MONITOR_PM.getClassName(),
                                                                 DeviceClasses.AIR_MONITOR_PM_QC.getClassName(),
                                                                 DeviceClasses.AIR_MONITOR_O3.getClassName(),
                                                                 DeviceClasses.AIR_MONITOR_NO2.getClassName(),
@@ -168,6 +169,14 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                         break;
                     case AIR_MONITOR_PM_QC:
                         device = new ParticulateZeroChecker(config);
+                        break;
+                    case AIR_MONITOR_PM:
+                        if ("SMS8700".equals(model)) {
+                            device = new SMS8700PMDevice(config);
+                        } else {
+                            log.error("Unsupported PM model: " + model);
+                            return false;
+                        }
                         break;
                     case AIR_MONITOR_O3:
                         device = new O3Device(config);
