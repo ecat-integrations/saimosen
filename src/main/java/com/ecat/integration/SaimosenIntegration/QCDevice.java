@@ -589,6 +589,22 @@ public class QCDevice extends SmsDeviceBase {
                 ));
                 break;
 
+            case U16X100:
+                setAttribute(new ModbusScalableFloatSRAttribute(
+                    info.attributeId, info.attrClass,
+                    info.unitType, info.unitType, info.displayPrecision, false, info.isWritable,
+                    modbusSource, address.shortValue(), bigConverter, 100.0f
+                ));
+                break;
+
+            case U16X1:
+                setAttribute(new ModbusScalableFloatSRAttribute(
+                    info.attributeId, info.attrClass,
+                    info.unitType, info.unitType, info.displayPrecision, false, info.isWritable,
+                    modbusSource, address.shortValue(), bigConverter, 1.0f
+                ));
+                break;
+
             case U16:
                 setAttribute(new ModbusShortAttribute(
                     info.attributeId, info.attrClass,
@@ -720,8 +736,9 @@ public class QCDevice extends SmsDeviceBase {
                         break;
 
                     case U16X10:
-                        short u16x10Value = registers[i];
-                        updateModbus10XShortAttribute(info.attributeId, u16x10Value, status);
+                    case U16X100:
+                    case U16X1:
+                        updateModbusScalableAttribute(info.attributeId, registers[i], status);
                         break;
 
                     case U16:
@@ -751,8 +768,9 @@ public class QCDevice extends SmsDeviceBase {
                         break;
 
                         case U16X10:
-                        short u16x10Value = registers[i];
-                        updateModbus10XShortAttribute(info.attributeId, u16x10Value, status);
+                        case U16X100:
+                        case U16X1:
+                        updateModbusScalableAttribute(info.attributeId, registers[i], status);
                         break;
                     }
                 }
@@ -780,7 +798,10 @@ public class QCDevice extends SmsDeviceBase {
         }
     }
 
-    private void updateModbus10XShortAttribute(String attributeId, short value, AttributeStatus status) {
+    /**
+     * 更新带缩放系数的 U16 属性。系数在建属性时写入（1 / 10 / 100），此处只投递原始寄存器值。
+     */
+    private void updateModbusScalableAttribute(String attributeId, short value, AttributeStatus status) {
         ModbusScalableFloatSRAttribute attr = (ModbusScalableFloatSRAttribute) getAttrs().get(attributeId);
         if (attr != null) attr.updateValue(value, status);
     }
@@ -862,7 +883,9 @@ public class QCDevice extends SmsDeviceBase {
      */
     protected enum ModbusDataType {
         U16,
+        U16X1,
         U16X10,
+        U16X100,
         FLOAT
     }
 

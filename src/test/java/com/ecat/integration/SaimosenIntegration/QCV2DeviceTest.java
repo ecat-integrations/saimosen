@@ -13,7 +13,6 @@ import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
-import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import org.junit.After;
@@ -36,7 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * QCV2Device 单元测试：验证相对 QCDevice 新增的智能稳压电源四路 U/I/P 接入。
+ * QCV2Device 单元测试：验证相对 QCDevice 新增的智能稳压电源协议（233~283）。
  */
 public class QCV2DeviceTest {
 
@@ -126,7 +125,18 @@ public class QCV2DeviceTest {
             assertNotNull("voltage_l" + i, device.getAttrs().get("voltage_l" + i));
             assertNotNull("current_l" + i, device.getAttrs().get("current_l" + i));
             assertNotNull("power_l" + i, device.getAttrs().get("power_l" + i));
+            assertNotNull("relay_l" + i, device.getAttrs().get("relay_l" + i));
+            assertNotNull("temp_alarm_high_l" + i, device.getAttrs().get("temp_alarm_high_l" + i));
+            assertNotNull("temp_alarm_low_l" + i, device.getAttrs().get("temp_alarm_low_l" + i));
+            assertNotNull("startup_delay_l" + i, device.getAttrs().get("startup_delay_l" + i));
+            assertNotNull("temp_trip_high_l" + i, device.getAttrs().get("temp_trip_high_l" + i));
+            assertNotNull("over_temp_protection_l" + i, device.getAttrs().get("over_temp_protection_l" + i));
         }
+        assertNotNull(device.getAttrs().get("temperature"));
+        assertNotNull(device.getAttrs().get("humidity"));
+        assertNotNull(device.getAttrs().get("temp_humidity_comm_status"));
+        assertNotNull(device.getAttrs().get("electric_param_comm_status"));
+        assertNotNull(device.getAttrs().get("device_address"));
     }
 
     @Test
@@ -136,7 +146,7 @@ public class QCV2DeviceTest {
         start.setAccessible(true);
         count.setAccessible(true);
         assertEquals(233, ((Integer) start.invoke(device)).intValue());
-        assertEquals(12, ((Integer) count.invoke(device)).intValue());
+        assertEquals(51, ((Integer) count.invoke(device)).intValue());
     }
 
     @Test
@@ -148,7 +158,11 @@ public class QCV2DeviceTest {
             assertNotNull(device.getAttrs().get("voltage_l" + i));
             assertNotNull(device.getAttrs().get("current_l" + i));
             assertNotNull(device.getAttrs().get("power_l" + i));
+            assertNotNull(device.getAttrs().get("relay_l" + i));
         }
+        assertNotNull(device.getAttrs().get("temperature"));
+        assertNotNull(device.getAttrs().get("humidity"));
+        assertNotNull(device.getAttrs().get("device_address"));
     }
 
     @Test
@@ -163,20 +177,39 @@ public class QCV2DeviceTest {
         }
         hex2.append("00 00");
 
-        // 第三块：12 个 U16（233~244），byteCount=0x18
-        // U 寄存器 2200..2203（显示 220.0~220.3V），I=10..13，P=1000..1003
-        String hex3 = "01 03 18 "
-                + "08 98 08 99 08 9A 08 9B "
-                + "00 0A 00 0B 00 0C 00 0D "
-                + "03 E8 03 E9 03 EA 03 EB "
-                + "00 00";
+        // 第三块：51 个 U16（233~283）。系数与 SmartPowerStabilizer 一致：U÷10、I÷100、P÷100
+        short[] registers3 = new short[51];
+        registers3[0] = 2200;  // 220.0V
+        registers3[1] = 2201;
+        registers3[2] = 2202;
+        registers3[3] = 2203;
+        registers3[4] = 275;   // 2.75A
+        registers3[5] = 276;
+        registers3[6] = 277;
+        registers3[7] = 278;
+        registers3[8] = 59;    // 0.59kW
+        registers3[9] = 60;
+        registers3[10] = 61;
+        registers3[11] = 62;
+        registers3[22] = 255;   // temperature 25.5℃
+        registers3[23] = 600;   // humidity 60.0%
+        registers3[24] = 1;     // relay_l1 合闸
+        registers3[25] = 0;     // relay_l2 跳闸
+        registers3[26] = 1;
+        registers3[27] = 1;
+        registers3[28] = 400;   // temp_alarm_high_l1 40.0℃
+        registers3[32] = 100;   // temp_alarm_low_l1 10.0℃
+        registers3[36] = 20;    // startup_delay_l1 20s
+        registers3[40] = 450;   // temp_trip_high_l1 45.0℃
+        registers3[44] = 1;     // over_temp_protection_l1
+        registers3[48] = 1;     // temp_humidity_comm_status
+        registers3[49] = 1;     // electric_param_comm_status
+        registers3[50] = 2;     // device_address
 
         short[] registers1 = QCDeviceTest.parseModbusResponse(
                 QCDeviceTest.hexStringToByteArray(hexData1.replaceAll(" ", "")));
         short[] registers2 = QCDeviceTest.parseModbusResponse(
                 QCDeviceTest.hexStringToByteArray(hex2.toString().replaceAll(" ", "")));
-        short[] registers3 = QCDeviceTest.parseModbusResponse(
-                QCDeviceTest.hexStringToByteArray(hex3.replaceAll(" ", "")));
 
         ReadHoldingRegistersResponse mockResponse1 = mock(ReadHoldingRegistersResponse.class);
         when(mockResponse1.getShortData()).thenReturn(registers1);
@@ -189,7 +222,7 @@ public class QCV2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockResponse1));
         when(mockModbusSource.readHoldingRegisters(eq(110), eq(123)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse2));
-        when(mockModbusSource.readHoldingRegisters(eq(233), eq(12)))
+        when(mockModbusSource.readHoldingRegisters(eq(233), eq(51)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse3));
 
         invokePrivateMethod(device, "readRegisters");
@@ -203,6 +236,12 @@ public class QCV2DeviceTest {
                 if (c == null || c.getState() == null || c.getState().getValue() == null) return false;
                 if (p == null || p.getState() == null || p.getState().getValue() == null) return false;
             }
+            AttributeBase<?> temp = device.getAttrs().get("temperature");
+            AttributeBase<?> relay = device.getAttrs().get("relay_l1");
+            AttributeBase<?> addr = device.getAttrs().get("device_address");
+            if (temp == null || temp.getState() == null || temp.getState().getValue() == null) return false;
+            if (relay == null || relay.getState() == null || relay.getState().getValue() == null) return false;
+            if (addr == null || addr.getState() == null || addr.getState().getValue() == null) return false;
             return true;
         }, 3000);
 
@@ -211,15 +250,28 @@ public class QCV2DeviceTest {
         assertEquals(220.2f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("voltage_l3")).getState().getValue(), 0.01f);
         assertEquals(220.3f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("voltage_l4")).getState().getValue(), 0.01f);
 
-        assertEquals(10, ((Number) ((ModbusShortAttribute) device.getAttrs().get("current_l1")).getState().getValue()).intValue());
-        assertEquals(11, ((Number) ((ModbusShortAttribute) device.getAttrs().get("current_l2")).getState().getValue()).intValue());
-        assertEquals(12, ((Number) ((ModbusShortAttribute) device.getAttrs().get("current_l3")).getState().getValue()).intValue());
-        assertEquals(13, ((Number) ((ModbusShortAttribute) device.getAttrs().get("current_l4")).getState().getValue()).intValue());
+        assertEquals(2.75f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("current_l1")).getState().getValue(), 0.01f);
+        assertEquals(2.76f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("current_l2")).getState().getValue(), 0.01f);
+        assertEquals(2.77f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("current_l3")).getState().getValue(), 0.01f);
+        assertEquals(2.78f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("current_l4")).getState().getValue(), 0.01f);
 
-        assertEquals(1000, ((Number) ((ModbusShortAttribute) device.getAttrs().get("power_l1")).getState().getValue()).intValue());
-        assertEquals(1001, ((Number) ((ModbusShortAttribute) device.getAttrs().get("power_l2")).getState().getValue()).intValue());
-        assertEquals(1002, ((Number) ((ModbusShortAttribute) device.getAttrs().get("power_l3")).getState().getValue()).intValue());
-        assertEquals(1003, ((Number) ((ModbusShortAttribute) device.getAttrs().get("power_l4")).getState().getValue()).intValue());
+        assertEquals(0.59f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("power_l1")).getState().getValue(), 0.01f);
+        assertEquals(0.60f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("power_l2")).getState().getValue(), 0.01f);
+        assertEquals(0.61f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("power_l3")).getState().getValue(), 0.01f);
+        assertEquals(0.62f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("power_l4")).getState().getValue(), 0.01f);
+
+        assertEquals(25.5f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temperature")).getState().getValue(), 0.01f);
+        assertEquals(60.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("humidity")).getState().getValue(), 0.01f);
+        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("relay_l1")).getState().getValue(), 0.01f);
+        assertEquals(0.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("relay_l2")).getState().getValue(), 0.01f);
+        assertEquals(40.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_alarm_high_l1")).getState().getValue(), 0.01f);
+        assertEquals(10.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_alarm_low_l1")).getState().getValue(), 0.01f);
+        assertEquals(20.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("startup_delay_l1")).getState().getValue(), 0.01f);
+        assertEquals(45.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_trip_high_l1")).getState().getValue(), 0.01f);
+        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("over_temp_protection_l1")).getState().getValue(), 0.01f);
+        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_humidity_comm_status")).getState().getValue(), 0.01f);
+        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("electric_param_comm_status")).getState().getValue(), 0.01f);
+        assertEquals(2.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("device_address")).getState().getValue(), 0.01f);
     }
 
     @Test
@@ -233,6 +285,13 @@ public class QCV2DeviceTest {
             TestTools.assertAttributeDisplayName(device, "current_l4", "第4路I");
             TestTools.assertAttributeDisplayName(device, "power_l1", "第1路P");
             TestTools.assertAttributeDisplayName(device, "power_l4", "第4路P");
+            TestTools.assertAttributeDisplayName(device, "temperature", "采集温度值");
+            TestTools.assertAttributeDisplayName(device, "humidity", "采集湿度值");
+            TestTools.assertAttributeDisplayName(device, "relay_l1", "第1路继电器状态");
+            TestTools.assertAttributeDisplayName(device, "relay_l4", "第4路继电器状态");
+            TestTools.assertAttributeDisplayName(device, "temp_alarm_high_l1", "第1路温度异常上限");
+            TestTools.assertAttributeDisplayName(device, "startup_delay_l1", "第1路开机启动延时");
+            TestTools.assertAttributeDisplayName(device, "device_address", "设备地址");
             TestTools.assertAttributeDisplayName(device, "bench_temp", "站房温度");
         } finally {
             ResourceLoader.setLoadI18nResources(true);
