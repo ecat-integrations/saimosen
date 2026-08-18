@@ -284,7 +284,6 @@ public class SMS8600V2Device extends SerialDeviceBase {
                    // responseHandlerStrategy.handleResponse(new ResponseHandlingContext<>(cmd))
                    // 创建 ByteResponseHandlingContext，使用命令作为上下文值
                    ByteResponseHandlingContext<byte[]> context = new ByteResponseHandlingContext<>(cmd);
-                   log.info("XHCAL2000BDevice {} - Handling response context: {}, cmd: {}", getId(), context, cmd);
                    return responseHandlerStrategy.handleResponse(context);
                });
     }

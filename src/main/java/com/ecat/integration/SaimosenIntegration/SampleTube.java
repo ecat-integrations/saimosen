@@ -334,7 +334,6 @@ public class SampleTube extends SmsDeviceBase {
                             parseRegisters(registers);
                             getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
                             publicAttrsState();
-                            log.info("SampleTube - Data updated successfully");
                             return true;
                         } catch (Exception e) {
                             log.error("SampleTube parsing failed: " + e.getMessage());

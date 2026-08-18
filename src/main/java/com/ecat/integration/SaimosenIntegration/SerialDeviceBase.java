@@ -104,12 +104,9 @@ public abstract class SerialDeviceBase extends DeviceBase {
     }
 
     protected String checkReadBuffer(String response) {
-        log.info("[checkReadBuffer] Response: " + response);
         if (response.endsWith("$")) {
-            log.info("[checkReadBuffer] Complete response: " + response);
             return response;
         }
-        log.info("[checkReadBuffer] Incomplete response: " + response);
         return null;
     }
 

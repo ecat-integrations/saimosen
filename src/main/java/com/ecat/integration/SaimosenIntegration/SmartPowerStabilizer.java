@@ -324,7 +324,6 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
                             parseRegisters(registers);
                             getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
                             publicAttrsState();
-                            log.info("SmartPowerStabilizer - Data updated successfully");
                             return true;
                         } catch (Exception e) {
                             log.error("SmartPowerStabilizer parsing failed: " + e.getMessage());

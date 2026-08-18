@@ -170,7 +170,6 @@ public class CODevice extends SmsDeviceBase {
                             commitPollState();
 
                             if (successCount == totalCount) {
-                                log.info("CODevice " + getId() + " - All segments updated successfully, device status: " + deviceStatus.getStatusName());
                             } else {
                                 log.warn("CODevice " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
                             }

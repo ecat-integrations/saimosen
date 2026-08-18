@@ -324,7 +324,6 @@ public class O3Device extends SmsDeviceBase {
                             commitPollState();
 
                             if (successCount == totalCount) {
-                                log.info("O3Device " + getId() + " - All segments updated successfully, device status: " + deviceStatus.getStatusName());
                             } else {
                                 log.warn("O3Device " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
                             }

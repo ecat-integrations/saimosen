@@ -261,7 +261,6 @@ public class CalibratorDevice extends SmsDeviceBase {
                                             // 设置所有属性状态
                                             getAttrs().values().forEach(attr -> attr.setStatus(status));
                                             publicAttrsState();
-                                            log.info("CalibratorDevice " + getId() + " - Data updated successfully");
                                             return true;
                                         } catch (Exception e) {
                                             log.error(

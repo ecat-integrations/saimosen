@@ -626,9 +626,8 @@ public class QCDevice extends SmsDeviceBase {
                         try {
                             // 处理第一块数据
                             short[] firstBlockRegisters = firstResponse.getShortData();
-                            log.info("QCDevice 第一块数据: {} 长度: {}", Arrays.toString(firstBlockRegisters), firstBlockRegisters.length);
+                            log.debug("QCDevice 第一块数据: {} 长度: {}", Arrays.toString(firstBlockRegisters), firstBlockRegisters.length);
                             parseBlockData(firstBlockRegisters, FIRST_BLOCK_START);
-                            log.info("QCDevice " + getId() + " - 第一块数据更新成功");
                             return true;
                         } catch (Exception e) {
                             log.error("QCDevice 第一块数据解析失败: " + e.getMessage());
@@ -648,10 +647,9 @@ public class QCDevice extends SmsDeviceBase {
                             try {
                                 // 处理第二块数据
                                 short[] secondBlockRegisters = secondResponse.getShortData();
-                                log.info("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
+                                log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
                                         Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
                                 parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-                                log.info("{} {} - 第二块数据更新成功", getClass().getSimpleName(), getId());
                                 return true;
                             } catch (Exception e) {
                                 log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
@@ -680,11 +678,10 @@ public class QCDevice extends SmsDeviceBase {
                         .thenApply(thirdResponse -> {
                             try {
                                 short[] thirdBlockRegisters = thirdResponse.getShortData();
-                                log.info("{} 第三块数据: {} 长度: {}", getClass().getSimpleName(),
+                                log.debug("{} 第三块数据: {} 长度: {}", getClass().getSimpleName(),
                                         Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
                                 parseBlockData(thirdBlockRegisters, thirdStart);
                                 finishReadCycle();
-                                log.info("{} {} - 第三块数据更新成功", getClass().getSimpleName(), getId());
                                 return true;
                             } catch (Exception e) {
                                 log.error("{} 第三块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());

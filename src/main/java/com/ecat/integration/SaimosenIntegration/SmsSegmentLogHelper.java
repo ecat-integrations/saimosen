@@ -15,7 +15,7 @@ final class SmsSegmentLogHelper {
     static void logFloatSegment(Log log, String deviceType, String deviceId,
                                 String segment, int startAddress, short[] raw,
                                 String[] fieldNames, double[] values) {
-        if (!log.isInfoEnabled() || raw == null || values == null) {
+        if (!log.isDebugEnabled() || raw == null || values == null) {
             return;
         }
         StringBuilder body = new StringBuilder();
@@ -26,14 +26,14 @@ final class SmsSegmentLogHelper {
             }
             body.append(formatFloatField(fieldNames[i], raw, i, values[i]));
         }
-        log.info(formatSegmentHeader(deviceType, deviceId, segment, startAddress, raw)
+        log.debug(formatSegmentHeader(deviceType, deviceId, segment, startAddress, raw)
                 + " parsed={" + body + "}");
     }
 
     static void logU16Segment(Log log, String deviceType, String deviceId,
                               String segment, int startAddress, short[] raw,
                               String[] fieldNames, double[] displayValues) {
-        if (!log.isInfoEnabled() || raw == null || displayValues == null) {
+        if (!log.isDebugEnabled() || raw == null || displayValues == null) {
             return;
         }
         StringBuilder body = new StringBuilder();
@@ -44,17 +44,17 @@ final class SmsSegmentLogHelper {
             }
             body.append(formatU16Field(fieldNames[i], raw, i, displayValues[i]));
         }
-        log.info(formatSegmentHeader(deviceType, deviceId, segment, startAddress, raw)
+        log.debug(formatSegmentHeader(deviceType, deviceId, segment, startAddress, raw)
                 + " parsed={" + body + "}");
     }
 
     static void logScalarSegment(Log log, String deviceType, String deviceId,
                                  String segment, int startAddress, short[] raw,
                                  String fieldName, double displayValue) {
-        if (!log.isInfoEnabled() || raw == null || raw.length == 0) {
+        if (!log.isDebugEnabled() || raw == null || raw.length == 0) {
             return;
         }
-        log.info(formatSegmentHeader(deviceType, deviceId, segment, startAddress, raw)
+        log.debug(formatSegmentHeader(deviceType, deviceId, segment, startAddress, raw)
                 + " parsed={" + formatU16Field(fieldName, raw, 0, displayValue) + "}");
     }
 

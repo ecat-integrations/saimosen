@@ -430,7 +430,6 @@ public class NO2Device extends SmsDeviceBase {
                             commitPollState();
 
                             if (successCount == totalCount) {
-                                log.info("NO2Device " + getId() + " - All segments updated successfully, device status: " + deviceStatus.getStatusName());
                             } else {
                                 log.warn("NO2Device " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
                             }

@@ -362,7 +362,6 @@ public class SO2Device extends SmsDeviceBase {
                             commitPollState();
 
                             if (successCount == totalCount) {
-                                log.info("SO2Device " + getId() + " - All segments updated successfully, device status: " + deviceStatus.getStatusName());
                             } else {
                                 log.warn("SO2Device " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
                             }
