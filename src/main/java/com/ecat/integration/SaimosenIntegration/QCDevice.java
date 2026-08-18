@@ -35,7 +35,6 @@ import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.EndianConverter.AbstractEndianConverter;
 import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter;
-import com.serotonin.modbus4j.ModbusConfig;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -82,7 +81,6 @@ public class QCDevice extends SmsDeviceBase {
     public void init() {
         super.init();
         createAttributes();
-        ModbusConfig.setEnableDataLog(true, true);
     }
 
     @Override
