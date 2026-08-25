@@ -11,7 +11,7 @@
 | `air.monitor.no2` | SMS8300 | NO2Device | Modbus RTU | NOx 自动分析仪（NO/NO₂/NOx） |
 | `air.monitor.o3` | SMS8400 | O3Device | Modbus RTU | O₃ 自动分析仪 |
 | `air.monitor.qc` | SMS8910 | QCDevice | Modbus RTU | 质控仪（完整协议 V1，起始地址 0~232） |
-| `air.monitor.qc` | SMS8910V2 | QCV2Device | Modbus RTU | 质控仪 V2（起始地址 0~244，含稳压电源参数） |
+| `air.monitor.qc` | SMS8910V2 | QCV2Device | Modbus RTU | 质控仪 V2（完整协议 0~273，含稳压电源参数） |
 | `air.monitor.calibrator` | SMS8600V1 | CalibratorDevice | Modbus RTU | 动态气体校准仪 V1 |
 | `air.monitor.calibrator` | SMS8600V2 | SMS8600V2Device | 串口 | 动态气体校准仪 V2（非 Modbus） |
 | `air.monitor.pm` | SMS8700 | SMS8700PMDevice | Modbus RTU | 多粒径颗粒物自动监测仪  |

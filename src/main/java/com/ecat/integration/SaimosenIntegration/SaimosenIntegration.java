@@ -73,7 +73,7 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         Map<String, String> qcMap = new HashMap<>();
         qcMap.put(SaimosenQCModels.SMS8910, "SMS8910（完整协议 V1，寄存器 0~232）");
         MODEL_PROTOCOL_MAP.put(SaimosenQCModels.SMS8910, Protocol.MODBUS.name());
-        qcMap.put(SaimosenQCModels.SMS8910V2, "SMS8910V2（完整协议 V2，寄存器 0~244）");
+        qcMap.put(SaimosenQCModels.SMS8910V2, "SMS8910V2（完整协议 V2，寄存器 0~273）");
         MODEL_PROTOCOL_MAP.put(SaimosenQCModels.SMS8910V2, Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.qc", qcMap);
         // PM 监测仪（多粒径）

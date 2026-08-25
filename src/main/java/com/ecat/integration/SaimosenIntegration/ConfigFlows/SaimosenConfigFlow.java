@@ -411,8 +411,8 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
             schema.addField(new TextConfigItem("qc_model_tip", false,
                     "型号说明（均为完整质控仪协议，非功能子集）：\n"
                             + "· SMS8910：完整协议 V1，覆盖寄存器 0~232。\n"
-                            + "· SMS8910V2：完整协议 V2，覆盖寄存器 0~244；"
-                            + "在 V1 全部参数基础上扩展智能稳压电源四路 U/I/P（233~244）。")
+                            + "· SMS8910V2：完整协议 V2，覆盖寄存器 0~273；"
+                            + "在 V1 全部参数基础上扩展智能稳压电源（233~273，含四路 U/I/P 及保护参数）。")
                     .displayName("质控仪协议版本说明"));
         }
         return schema.addField(new EnumConfigItem("model", true)
