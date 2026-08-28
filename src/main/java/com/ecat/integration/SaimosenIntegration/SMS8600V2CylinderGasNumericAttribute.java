@@ -44,11 +44,12 @@ public class SMS8600V2CylinderGasNumericAttribute extends NumericAttribute {
         return channelId;
     }
 
+    // IO 载荷钩子（22 号 setValue final 化）：IO = calppm 标定命令事务（发帧+calppmok$ 应答
+    // 确认），确认成功后的本地收尾（updateValue+publicState）/失败记账（commandFailed）/
+    // 值变更门禁由 final setValue 入口统一持有——修复此前自拼 CF 只做 IO 不做任何本地收尾、
+    // 设备已改而平台属性值/总线事件纹丝不动的断链（D-22-7 ①）
     @Override
-    public CompletableFuture<Boolean> setValue(Double newValue) {
-        if (!valueChangeable) {
-            return  CompletableFuture.completedFuture(false);
-        }
+    protected CompletableFuture<Boolean> setValueImpl(Double newValue) {
         if(newValue == null){
             return CompletableFuture.completedFuture(false);
         }

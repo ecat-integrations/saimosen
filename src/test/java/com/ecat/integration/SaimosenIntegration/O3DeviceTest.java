@@ -1051,7 +1051,7 @@ public class O3DeviceTest {
         when(mockModbusSource.writeRegisters(eq(26), any(short[].class)))
                 .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
 
-        assertTrue(ledAttr.setValue(8.0f).get(5, TimeUnit.SECONDS));
+        assertTrue(ledAttr.setDisplayValue("8.0").get(5, TimeUnit.SECONDS));
 
         verify(mockModbusSource, times(1)).writeRegisters(eq(26), eq(new short[] { 0x0041, 0x0000 }));
         assertEquals(8.0f, ledAttr.getState().getValue(), 0.001f);
