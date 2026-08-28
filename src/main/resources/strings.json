@@ -554,6 +554,10 @@
       "sample_tube_flow": "采样管流速",
       "sample_tube_pressure": "采样管静压",
       "sample_tube_leak": "采样管漏水状态",
+      "sample_tube_leak_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "station_ua": "站房A相电压",
       "station_ub": "站房B相电压",
       "station_uc": "站房C相电压",
@@ -591,19 +595,55 @@
       "co_purifier_temp": "CO涤除器温度",
       "co_cylinder_leak": "CO钢瓶气泄露状态",
       "fan_control": "风机控制",
+      "fan_control_options": {
+        "on": "开",
+        "off": "关"
+      },
       "zero_gas_relay": "零气继电器",
+      "zero_gas_relay_options": {
+        "on": "开",
+        "off": "关"
+      },
       "calibrator_relay": "校准仪继电器",
       "calibration_valve_so2": "SO2校准阀控制",
       "calibration_valve_nox": "NOx校准阀控制",
       "calibration_valve_o3": "O3校准阀控制",
       "calibration_valve_co": "CO校准阀控制",
       "light_control": "灯",
+      "light_control_options": {
+        "on": "开",
+        "off": "关"
+      },
       "infrared_status": "红外状态",
+      "infrared_status_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "smoke_detector1": "烟感1状态",
+      "smoke_detector1_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "smoke_detector2": "烟感2状态",
+      "smoke_detector2_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "temp_detector1": "温感1状态",
+      "temp_detector1_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "temp_detector2": "温感2状态",
+      "temp_detector2_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "water_leak_detector": "水浸状态",
+      "water_leak_detector_options": {
+        "normal": "正常",
+        "alarm": "报警"
+      },
       "gas_cylinder_alarm_status": "钢瓶气压力报警状态",
       "zero_gas_alarm_status": "零气压力报警状态",
       "ups_input_voltage": "UPS输入电压",
@@ -621,20 +661,46 @@
       "so2_concentration_qc": "SO2浓度",
       "sample_tube_addr": "采样管地址",
       "sample_tube_sampling_status": "采样管采样状态",
+      "sample_tube_sampling_status_options": {
+        "on": "采样",
+        "off": "停止"
+      },
       "heating_temp": "加热温度",
       "fan_power": "风机功率",
       "heating_belt_power": "加热带功率",
+      "so2_film_changer_addr": "SO2换膜器地址",
+      "nox_film_changer_addr": "NOx换膜器地址",
+      "co_film_changer_addr": "CO换膜器地址",
+      "o3_film_changer_addr": "O3换膜器地址",
       "so2_film_changer_status": "SO2换膜器状态",
       "nox_film_changer_status": "NOx换膜器状态",
       "co_film_changer_status": "CO换膜器状态",
       "o3_film_changer_status": "O3换膜器状态",
+      "so2_film_ch1_switch_time": "SO2换膜器通道1切换时间",
+      "so2_film_ch2_switch_time": "SO2换膜器通道2切换时间",
+      "so2_film_ch3_switch_time": "SO2换膜器通道3切换时间",
+      "so2_film_ch4_switch_time": "SO2换膜器通道4切换时间",
+      "so2_film_ch5_switch_time": "SO2换膜器通道5切换时间",
+      "nox_film_ch3_switch_time": "NOx换膜器通道3切换时间",
+      "nox_film_ch4_switch_time": "NOx换膜器通道4切换时间",
+      "nox_film_ch5_switch_time": "NOx换膜器通道5切换时间",
+      "co_film_ch1_switch_time": "CO换膜器通道1切换时间",
+      "co_film_ch2_switch_time": "CO换膜器通道2切换时间",
+      "co_film_ch3_switch_time": "CO换膜器通道3切换时间",
+      "co_film_ch4_switch_time": "CO换膜器通道4切换时间",
+      "co_film_ch5_switch_time": "CO换膜器通道5切换时间",
+      "o3_film_ch1_switch_time": "O3换膜器通道1切换时间",
+      "o3_film_ch2_switch_time": "O3换膜器通道2切换时间",
+      "o3_film_ch3_switch_time": "O3换膜器通道3切换时间",
+      "o3_film_ch4_switch_time": "O3换膜器通道4切换时间",
+      "o3_film_ch5_switch_time": "O3换膜器通道5切换时间",
       "vibration": "震动",
       "pm10_std_flow": "PM10标况流量",
       "pm10_working_flow": "PM10工况流量",
       "pm2_5_std_flow": "PM2.5标况流量",
       "pm2_5_working_flow": "PM2.5工况流量",
       "so2_gas_temp": "SO2支管温度",
-      "nox_gas_temp": "NOX支管温度",
+      "nox_gas_temp": "NOx支管温度",
       "co_gas_temp": "CO支管温度",
       "o3_gas_temp": "O3支管温度",
       "sampling_tube_residence_time": "采样管滞留时间",
@@ -655,9 +721,25 @@
       "temperature": "采集温度值",
       "humidity": "采集湿度值",
       "relay_l1": "第1路继电器状态",
+      "relay_l1_options": {
+        "on": "合闸",
+        "off": "跳闸"
+      },
       "relay_l2": "第2路继电器状态",
+      "relay_l2_options": {
+        "on": "合闸",
+        "off": "跳闸"
+      },
       "relay_l3": "第3路继电器状态",
+      "relay_l3_options": {
+        "on": "合闸",
+        "off": "跳闸"
+      },
       "relay_l4": "第4路继电器状态",
+      "relay_l4_options": {
+        "on": "合闸",
+        "off": "跳闸"
+      },
       "temp_alarm_high_l1": "第1路温度异常上限",
       "temp_alarm_high_l2": "第2路温度异常上限",
       "temp_alarm_high_l3": "第3路温度异常上限",
@@ -675,11 +757,35 @@
       "temp_trip_high_l3": "第3路温度跳闸上限",
       "temp_trip_high_l4": "第4路温度跳闸上限",
       "over_temp_protection_l1": "第1路超温保护是否启动",
+      "over_temp_protection_l1_options": {
+        "on": "启动",
+        "off": "未启动"
+      },
       "over_temp_protection_l2": "第2路超温保护是否启动",
+      "over_temp_protection_l2_options": {
+        "on": "启动",
+        "off": "未启动"
+      },
       "over_temp_protection_l3": "第3路超温保护是否启动",
+      "over_temp_protection_l3_options": {
+        "on": "启动",
+        "off": "未启动"
+      },
       "over_temp_protection_l4": "第4路超温保护是否启动",
+      "over_temp_protection_l4_options": {
+        "on": "启动",
+        "off": "未启动"
+      },
       "temp_humidity_comm_status": "温湿度传感器通讯状态",
+      "temp_humidity_comm_status_options": {
+        "normal": "正常",
+        "alarm": "异常"
+      },
       "electric_param_comm_status": "电参数模块通讯状态",
+      "electric_param_comm_status_options": {
+        "normal": "正常",
+        "alarm": "异常"
+      },
       "device_address": "设备地址"
     },
     "smart_power_stabilizer": {

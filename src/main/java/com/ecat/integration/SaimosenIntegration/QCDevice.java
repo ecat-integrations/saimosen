@@ -50,8 +50,7 @@ public class QCDevice extends SmsDeviceBase {
     protected static final int FIRST_BLOCK_COUNT = 110; // 第一块读取110个寄存器
     
     protected static final int SECOND_BLOCK_START = 0x6E; // 第二块起始地址(0x00 + 110 = 0x6E)
-    /** 原版第二块寄存器数量（覆盖地址 110~232） */
-    protected static final int SECOND_BLOCK_COUNT = 123;
+    protected static final int SECOND_BLOCK_COUNT = 123; // 第二块读取123个寄存器（覆盖地址 110~232）
     
     // 转换器
     BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
@@ -62,16 +61,10 @@ public class QCDevice extends SmsDeviceBase {
     /**
      * 块二前节拍（毫秒，默认 1000）：设备性能要求——连续读寄存器块之间须留隙，盲发
      * 第二笔会锁忙静默缺失（见 readRegisters 注释）。包可见，供同包测试注入小值：
-     * 单测只验证链路语义（三块全读 + finishReadCycle 发布），节拍本身不是被测对象，
+     * 单测只验证链路语义（两块全读 + finishReadCycle 发布），节拍本身不是被测对象，
      * 生产默认不变。
      */
     long secondBlockGapMs = 1000L;
-
-    /**
-     * 块三前节拍（毫秒，默认 500）：设备性能要求，同 {@link #secondBlockGapMs} 语义
-     * （V2 智能稳压电源块；原版无第三块不消费）。
-     */
-    long thirdBlockGapMs = 500L;
 
     private ConfigDefinition configDefinition;
     private DeviceConfig deviceConfig;
@@ -114,29 +107,6 @@ public class QCDevice extends SmsDeviceBase {
     @Override
     public void release() {
         super.release();
-    }
-
-    /**
-     * 第二块 Modbus 连续读取的寄存器数量。
-     */
-    protected int getSecondBlockRegisterCount() {
-        return SECOND_BLOCK_COUNT;
-    }
-
-    /**
-     * 第三块起始地址；返回负数表示不读取第三块（原版）。
-     * <p>注意：单次 Modbus 读响应 byteCount 最大 255，第二块已接近上限，
-     * V2 新增寄存器应通过第三块读取。
-     */
-    protected int getThirdBlockStart() {
-        return -1;
-    }
-
-    /**
-     * 第三块寄存器数量；0 表示不读取。
-     */
-    protected int getThirdBlockRegisterCount() {
-        return 0;
     }
 
     /**
@@ -512,14 +482,7 @@ public class QCDevice extends SmsDeviceBase {
         attributeMap.put(231, new AttributeInfo("pm2_5_working_flow", AttributeClass.FLOW, "PM2.5工况流量",
                 ModbusDataType.FLOAT, 2, LiterFlowUnit.L_PER_MINUTE, false, 2));
 
-        registerExtendedAttributeMap();
         registerConfigDerivedAttributes();
-    }
-
-    /**
-     * 协议扩展段属性注册钩子。子类（如 {@link QCV2Device}）在此注册 V2 完整协议中的扩展寄存器。
-     */
-    protected void registerExtendedAttributeMap() {
     }
 
     /**
@@ -617,8 +580,8 @@ public class QCDevice extends SmsDeviceBase {
     }
 
     /**
-     * 定时读取Modbus寄存器数据（SDK 单事务 round：三块读在同源锁内 FIFO 串行，
-     * 块间 1s/500ms 节拍保留——设备性能要求。旧形态为三笔独立事务在 1s 定时到点
+     * 定时读取Modbus寄存器数据（SDK 单事务 round：两块读在同源锁内 FIFO 串行，
+     * 块间 1s 节拍保留——设备性能要求。旧形态为两笔独立事务在 1s 定时到点
      * 盲发第二笔，块一未完成时第二笔 tryAcquire 必锁忙静默缺失（wit-motion 同型缺陷），
      * 合并后天然串行不再互踩）
      */
@@ -645,62 +608,29 @@ public class QCDevice extends SmsDeviceBase {
                     }
                     return true;
                 })
-                // 块间 1s 节拍后读第二块（secondBlockGapMs：设备性能要求默认 1000，测试可注入）
-                .thenCompose(v -> {
-                    int secondBlockCount = getSecondBlockRegisterCount();
-                    return polling.delay(secondBlockGapMs).thenCompose(z ->
-                            source.readHoldingRegisters(SECOND_BLOCK_START, secondBlockCount)
-                                    .thenApply(secondResponse -> {
-                                        try {
-                                            // 处理第二块数据
-                                            short[] secondBlockRegisters = secondResponse.getShortData();
-                                            log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
-                                                    Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
-                                            parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-                                            return true;
-                                        } catch (Exception e) {
-                                            log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
-                                            getAttrs().values()
-                                                    .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                            publicAttrsState();
-                                            return false;
-                                        }
-                                    }));
-                })
-                .thenCompose(ok -> {
-                    if (!Boolean.TRUE.equals(ok)) {
-                        return CompletableFuture.completedFuture(false);
-                    }
-                    int thirdStart = getThirdBlockStart();
-                    int thirdCount = getThirdBlockRegisterCount();
-                    if (thirdStart < 0 || thirdCount <= 0) {
-                        // 原版：第二块完成后更新计算属性并发布
-                        finishReadCycle();
-                        return CompletableFuture.completedFuture(true);
-                    }
-                    // V2：再延迟后读取第三块（智能稳压电源寄存器；thirdBlockGapMs 默认 500，测试可注入）
-                    return polling.delay(thirdBlockGapMs).thenCompose(z2 ->
-                            source.readHoldingRegisters(thirdStart, thirdCount)
-                                    .thenApply(thirdResponse -> {
-                                        try {
-                                            short[] thirdBlockRegisters = thirdResponse.getShortData();
-                                            log.debug("{} 第三块数据: {} 长度: {}", getClass().getSimpleName(),
-                                                    Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
-                                            parseBlockData(thirdBlockRegisters, thirdStart);
-                                            finishReadCycle();
-                                            return true;
-                                        } catch (Exception e) {
-                                            log.error("{} 第三块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
-                                            getAttrs().values()
-                                                    .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                            publicAttrsState();
-                                            return false;
-                                        }
-                                    }));
-                });
+                // 块间 1s 节拍后读第二块（110~232；secondBlockGapMs：设备性能要求默认 1000，测试可注入）
+                .thenCompose(v -> polling.delay(secondBlockGapMs).thenCompose(z ->
+                        source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
+                                .thenApply(secondResponse -> {
+                                    try {
+                                        // 处理第二块数据
+                                        short[] secondBlockRegisters = secondResponse.getShortData();
+                                        log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
+                                                Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
+                                        parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
+                                        finishReadCycle();
+                                        return true;
+                                    } catch (Exception e) {
+                                        log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
+                                        getAttrs().values()
+                                                .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                                        publicAttrsState();
+                                        return false;
+                                    }
+                                })));
     }
 
-    /** 第二/三块读取完成后：计算派生属性、置 NORMAL 并发布 */
+    /** 两块读取完成后：计算派生属性、置 NORMAL 并发布 */
     private void finishReadCycle() {
         updateCalulateAttr();
         getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));

@@ -134,7 +134,7 @@ public class QCDeviceTest {
      * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
      * （readRegisters，两步构建同 QCDevice#start），节拍测试自持 50ms——与生产 every(5s)
      * 解耦，负向观察窗从 6s 收到 600ms 仍覆盖 >10 个周期。注意：round 链内块间节拍经
-     * secondBlockGapMs/thirdBlockGapMs（生产 1s/500ms），快节拍下调用方须先注入小值，
+     * secondBlockGapMs（生产 1s），快节拍下调用方须先注入小值，
      * 否则单轮 ≥1s、600ms 窗盖不住一个周期（负向覆盖强度受损）。
      * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPolling 正向覆盖。
      */
@@ -436,7 +436,7 @@ public class QCDeviceTest {
         // 直调 round（同包可见）：整链（含块间节拍 + finishReadCycle）完成即回。
         // 节拍经 polling.delay(ms) 糖：同包直调须自备未 start 的构建器实例（生产由
         // start() 两步构建注入 round，见 QCDevice#start）。块间节拍注入 1ms（生产 1s：
-        // 设备性能要求，链路语义与节拍正交——三块全读+finishReadCycle 断言不受影响）
+        // 设备性能要求，链路语义与节拍正交——两块全读+finishReadCycle 断言不受影响）
         device.secondBlockGapMs = 1L;
         device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
                 .get(10, TimeUnit.SECONDS);

@@ -8,12 +8,16 @@ import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AttributeBase;
 import com.ecat.core.State.AttributeStatus;
+import com.ecat.core.State.BinaryAttribute;
+import com.ecat.core.State.StringSelectAttribute;
+import com.ecat.core.State.Unit.AirMassUnit;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
-import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import org.junit.After;
@@ -36,7 +40,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * QCV2Device 单元测试：验证相对 QCDevice 新增的智能稳压电源协议（233~283）。
+ * QCV2Device 单元测试：独立完整协议 V2（0~273），相对 QCDevice 新增的智能稳压电源协议（233~273）。
  */
 public class QCV2DeviceTest {
 
@@ -48,8 +52,8 @@ public class QCV2DeviceTest {
     @Mock private EcatCore mockEcatCore;
     @Mock private BusRegistry mockBusRegistry;
 
-    /** 调度桩说明（W7 终态）：块间节拍走 polling.delay(ms)（ModbusSdkTimers 域池），
-     *  TaskManager 无调度引擎入口（轮询定时归域 SDK 自持），本测不再桩调度路由。 */
+    /** 调度桩说明：块间节拍走 polling.delay(ms)（ModbusSdkTimers 域池），
+     *  轮询定时归域 SDK 自持，本测不再桩调度路由。 */
 
     @Before
     public void setUp() throws Exception {
@@ -62,7 +66,6 @@ public class QCV2DeviceTest {
         setPrivateField(device, "modbusIntegration", mockModbusIntegration);
 
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
@@ -72,15 +75,10 @@ public class QCV2DeviceTest {
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
 
         device.init();
-        // 直调 round 须就绪（publicAttrsState 门禁；旧反射+丢 CF 形态把门禁 ISE 静默吞掉，
-        // 直调取结果后显形——补 StateManager 桩 + markReady 对齐生产时序）
-        when(mockEcatCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
-        device.markReady();
     }
 
     @After
     public void tearDown() throws Exception {
-        device.stop();
         mockitoCloseable.close();
     }
 
@@ -118,12 +116,34 @@ public class QCV2DeviceTest {
     }
 
     @Test
-    public void testInit_CreatesSmartPowerSupplyAttributes() {
-        // 继承原版关键属性
+    public void testDoesNotExtendQCDevice() {
+        assertEquals(SmsDeviceBase.class, QCV2Device.class.getSuperclass());
+        assertEquals(QCV2Device.class, device.getClass());
+    }
+
+    @Test
+    public void testInit_CreatesProtocolAttributes() {
         assertNotNull(device.getAttrs().get("system_state"));
         assertNotNull(device.getAttrs().get("pm2_5_working_flow"));
+        assertNotNull(device.getAttrs().get("so2_film_changer_addr"));
+        assertNotNull(device.getAttrs().get("nox_film_changer_addr"));
+        assertNotNull(device.getAttrs().get("co_film_changer_addr"));
+        assertNotNull(device.getAttrs().get("o3_film_changer_addr"));
+        assertNotNull(device.getAttrs().get("so2_film_changer_status"));
+        assertNotNull(device.getAttrs().get("nox_film_changer_status"));
+        assertNotNull(device.getAttrs().get("co_film_changer_status"));
+        assertNotNull(device.getAttrs().get("o3_film_changer_status"));
+        assertNotNull(device.getAttrs().get("so2_film_ch1_switch_time"));
+        assertNotNull(device.getAttrs().get("so2_film_ch5_switch_time"));
+        assertNotNull(device.getAttrs().get("nox_film_ch3_switch_time"));
+        assertNotNull(device.getAttrs().get("nox_film_ch5_switch_time"));
+        assertNotNull(device.getAttrs().get("co_film_ch1_switch_time"));
+        assertNotNull(device.getAttrs().get("o3_film_ch5_switch_time"));
+        assertNull(device.getAttrs().get("so2_film_ch1_year"));
+        assertNull(device.getAttrs().get("nox_film_ch2_hour"));
+        assertNull(device.getAttrs().get("nox_film_ch1_switch_time"));
+        assertNull(device.getAttrs().get("nox_film_ch2_switch_time"));
 
-        // V2 新增智能稳压电源四路 U/I/P
         for (int i = 1; i <= 4; i++) {
             assertNotNull("voltage_l" + i, device.getAttrs().get("voltage_l" + i));
             assertNotNull("current_l" + i, device.getAttrs().get("current_l" + i));
@@ -140,79 +160,113 @@ public class QCV2DeviceTest {
         assertNotNull(device.getAttrs().get("temp_humidity_comm_status"));
         assertNotNull(device.getAttrs().get("electric_param_comm_status"));
         assertNotNull(device.getAttrs().get("device_address"));
-    }
-
-    @Test
-    public void testThirdBlockCoversPowerSupplyRegisters() throws Exception {
-        Method start = QCDevice.class.getDeclaredMethod("getThirdBlockStart");
-        Method count = QCDevice.class.getDeclaredMethod("getThirdBlockRegisterCount");
-        start.setAccessible(true);
-        count.setAccessible(true);
-        assertEquals(233, ((Integer) start.invoke(device)).intValue());
-        assertEquals(51, ((Integer) count.invoke(device)).intValue());
-    }
-
-    @Test
-    public void testRegisterExtendedAttributeMap_AddsPowerSupplyAttrs() throws Exception {
-        Method m = QCDevice.class.getDeclaredMethod("registerExtendedAttributeMap");
-        m.setAccessible(true);
-        m.invoke(device);
+        assertTrue(device.getAttrs().get("fan_control") instanceof BinaryAttribute);
+        assertTrue(device.getAttrs().get("light_control") instanceof BinaryAttribute);
+        assertTrue(device.getAttrs().get("infrared_status") instanceof StringSelectAttribute);
+        assertTrue(device.getAttrs().get("smoke_detector1") instanceof StringSelectAttribute);
+        assertTrue(device.getAttrs().get("smoke_detector2") instanceof StringSelectAttribute);
+        assertTrue(device.getAttrs().get("temp_detector1") instanceof StringSelectAttribute);
+        assertTrue(device.getAttrs().get("water_leak_detector") instanceof StringSelectAttribute);
+        // 采样管漏水：硬件未实际返回，V2 暂不建属性（代码保留在 QCV2Device.initAttributeMap 注释中）
+        assertNull(device.getAttrs().get("sample_tube_leak"));
+        assertTrue(device.getAttrs().get("sample_tube_sampling_status") instanceof BinaryAttribute);
+        assertTrue(device.getAttrs().get("zero_gas_relay") instanceof BinaryAttribute);
         for (int i = 1; i <= 4; i++) {
-            assertNotNull(device.getAttrs().get("voltage_l" + i));
-            assertNotNull(device.getAttrs().get("current_l" + i));
-            assertNotNull(device.getAttrs().get("power_l" + i));
-            assertNotNull(device.getAttrs().get("relay_l" + i));
+            assertTrue("relay_l" + i, device.getAttrs().get("relay_l" + i) instanceof BinaryAttribute);
+            assertTrue("over_temp_protection_l" + i,
+                    device.getAttrs().get("over_temp_protection_l" + i) instanceof BinaryAttribute);
         }
-        assertNotNull(device.getAttrs().get("temperature"));
-        assertNotNull(device.getAttrs().get("humidity"));
-        assertNotNull(device.getAttrs().get("device_address"));
+        assertTrue(device.getAttrs().get("temp_humidity_comm_status") instanceof StringSelectAttribute);
+        assertTrue(device.getAttrs().get("electric_param_comm_status") instanceof StringSelectAttribute);
     }
 
     @Test
-    public void testReadRegisters_ParsesSmartPowerSupplyData() throws Exception {
-        // 第一块：110 寄存器
+    public void testProtocolWritableFlags() {
+        assertTrue(device.getAttrs().get("system_state").canValueChange());
+        assertFalse(device.getAttrs().get("fan_power").canValueChange());
+        assertFalse(device.getAttrs().get("heating_belt_power").canValueChange());
+        assertTrue(device.getAttrs().get("heating_temp").canValueChange());
+        assertTrue(device.getAttrs().get("so2_film_changer_addr").canValueChange());
+        assertTrue(device.getAttrs().get("relay_l1").canValueChange());
+        assertTrue(device.getAttrs().get("sample_tube_sampling_status").canValueChange());
+        assertFalse(device.getAttrs().get("voltage_l1").canValueChange());
+        assertFalse(device.getAttrs().get("temperature").canValueChange());
+        assertTrue(device.getAttrs().get("device_address").canValueChange());
+        assertTrue(device.getAttrs().get("over_temp_protection_l1").canValueChange());
+        assertFalse(device.getAttrs().get("temp_humidity_comm_status").canValueChange());
+        assertFalse(device.getAttrs().get("electric_param_comm_status").canValueChange());
+        assertTrue(device.getAttrs().get("fan_control").canValueChange());
+        assertTrue(device.getAttrs().get("light_control").canValueChange());
+        assertTrue(device.getAttrs().get("zero_gas_relay").canValueChange());
+        assertFalse(device.getAttrs().get("infrared_status").canValueChange());
+        assertFalse(device.getAttrs().get("smoke_detector1").canValueChange());
+    }
+
+    @Test
+    public void testGasConcentrationUnitsAreUgM3() {
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("o3_concentration_qc").getNativeUnit());
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("co_concentration_qc").getNativeUnit());
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("no2_concentration_qc").getNativeUnit());
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("so2_concentration_qc").getNativeUnit());
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("pm2_5_concentration").getNativeUnit());
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("pm10_concentration").getNativeUnit());
+    }
+
+    @Test
+    public void testReadRegisters_ParsesSmartPowerSupplyAndFilmChangers() throws Exception {
         String hexData1 = "01 03 DC 00 00 41 CC CC CD 42 3F 33 33 41 FF 33 33 42 28 00 00 3F A6 66 66 00 00 00 00 00 00 43 65 19 9A 43 64 80 00 43 66 CC CD 40 98 51 EC 40 93 D7 0A 3E C7 AE 14 44 19 00 00 44 47 80 00 42 8E 00 00 C4 31 C0 00 C1 C8 00 00 C2 04 00 00 3E E8 F5 C3 3F 7F BE 77 3F 65 A1 CB 42 48 0A 3D 00 01 00 00 00 18 00 01 00 01 00 17 00 01 00 00 00 00 00 19 00 00 00 01 00 17 00 00 46 1B 9E 13 46 69 35 D0 44 E1 43 78 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 01 00 01 00 01 00 01 00 01 00 01 00 00 00 00 43 67 19 9A 43 5C 33 33 00 0A 42 48 00 00 00 00 00 00 00 00 00 00 00 00 00 07 00 11 3C A3 D7 0A 00 05 00 00 00 00 3D CC CC CD 81 7C";
 
-        // 第二块：123 寄存器（全 0，byteCount=0xF6）
-        StringBuilder hex2 = new StringBuilder("01 03 F6 ");
-        for (int i = 0; i < 123; i++) {
-            hex2.append("00 00 ");
-        }
-        hex2.append("00 00");
+        short[] registers2 = new short[123];
+        registers2[111 - 110] = 1;
+        registers2[115 - 110] = 1;
+        registers2[116 - 110] = 11;
+        registers2[117 - 110] = 2026;
+        registers2[118 - 110] = 8;
+        registers2[119 - 110] = 15;
+        registers2[120 - 110] = 14;
+        registers2[121 - 110] = 30;
+        registers2[142 - 110] = 2;
+        registers2[143 - 110] = 22;
+        registers2[154 - 110] = 26;
+        registers2[155 - 110] = 1;
+        registers2[156 - 110] = 2;
+        registers2[157 - 110] = 9;
+        registers2[158 - 110] = 5;
+        registers2[169 - 110] = 3;
+        registers2[170 - 110] = 33;
+        registers2[196 - 110] = 4;
+        registers2[197 - 110] = 44;
 
-        // 第三块：51 个 U16（233~283）。系数与 SmartPowerStabilizer 一致：U÷10、I÷100、P÷100
-        short[] registers3 = new short[51];
-        registers3[0] = 2200;  // 220.0V
+        short[] registers3 = new short[41];
+        registers3[0] = 2200;
         registers3[1] = 2201;
         registers3[2] = 2202;
         registers3[3] = 2203;
-        registers3[4] = 275;   // 2.75A
+        registers3[4] = 275;
         registers3[5] = 276;
         registers3[6] = 277;
         registers3[7] = 278;
-        registers3[8] = 59;    // 0.59kW
+        registers3[8] = 59;
         registers3[9] = 60;
         registers3[10] = 61;
         registers3[11] = 62;
-        registers3[22] = 255;   // temperature 25.5℃
-        registers3[23] = 600;   // humidity 60.0%
-        registers3[24] = 1;     // relay_l1 合闸
-        registers3[25] = 0;     // relay_l2 跳闸
-        registers3[26] = 1;
-        registers3[27] = 1;
-        registers3[28] = 400;   // temp_alarm_high_l1 40.0℃
-        registers3[32] = 100;   // temp_alarm_low_l1 10.0℃
-        registers3[36] = 20;    // startup_delay_l1 20s
-        registers3[40] = 450;   // temp_trip_high_l1 45.0℃
-        registers3[44] = 1;     // over_temp_protection_l1
-        registers3[48] = 1;     // temp_humidity_comm_status
-        registers3[49] = 1;     // electric_param_comm_status
-        registers3[50] = 2;     // device_address
+        registers3[12] = 255;
+        registers3[13] = 600;
+        registers3[14] = 1;
+        registers3[15] = 0;
+        registers3[16] = 1;
+        registers3[17] = 1;
+        registers3[18] = 400;
+        registers3[22] = 100;
+        registers3[26] = 20;
+        registers3[30] = 450;
+        registers3[34] = 1;
+        registers3[38] = 1;
+        registers3[39] = 1;
+        registers3[40] = 2;
 
         short[] registers1 = QCDeviceTest.parseModbusResponse(
                 QCDeviceTest.hexStringToByteArray(hexData1.replaceAll(" ", "")));
-        short[] registers2 = QCDeviceTest.parseModbusResponse(
-                QCDeviceTest.hexStringToByteArray(hex2.toString().replaceAll(" ", "")));
 
         ReadHoldingRegistersResponse mockResponse1 = mock(ReadHoldingRegistersResponse.class);
         when(mockResponse1.getShortData()).thenReturn(registers1);
@@ -225,13 +279,14 @@ public class QCV2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockResponse1));
         when(mockModbusSource.readHoldingRegisters(eq(110), eq(123)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse2));
-        when(mockModbusSource.readHoldingRegisters(eq(233), eq(51)))
+        when(mockModbusSource.readHoldingRegisters(eq(233), eq(41)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse3));
 
+        device.markReady();
         // 直调 round（同包可见）：整链（块间节拍 + 第三块 + finishReadCycle）完成即回。
-        // 节拍经 polling.delay(ms) 糖：同包直调须自备未 start 的构建器实例（生产由
-        // start() 两步构建注入 round，见 QCDevice#start）。块间节拍注入 1ms（生产 1s/500ms：
-        // 设备性能要求，链路语义与节拍正交——三块全读+finishReadCycle 断言不受影响）
+        // 节拍经 polling.delay(ms)：同包直调须自备未 start 的构建器实例（生产由
+        // start() 两步构建注入 round）。块间节拍注入 1ms（生产 1s/800ms：设备性能
+        // 要求，链路语义与节拍正交——三块全读+finishReadCycle 断言不受影响）
         device.secondBlockGapMs = 1L;
         device.thirdBlockGapMs = 1L;
         device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
@@ -246,14 +301,33 @@ public class QCV2DeviceTest {
                 if (c == null || c.getState() == null || c.getState().getValue() == null) return false;
                 if (p == null || p.getState() == null || p.getState().getValue() == null) return false;
             }
+            AttributeBase<?> so2Film = device.getAttrs().get("so2_film_changer_status");
+            AttributeBase<?> o3Film = device.getAttrs().get("o3_film_changer_status");
+            AttributeBase<?> so2Time = device.getAttrs().get("so2_film_ch1_switch_time");
             AttributeBase<?> temp = device.getAttrs().get("temperature");
-            AttributeBase<?> relay = device.getAttrs().get("relay_l1");
             AttributeBase<?> addr = device.getAttrs().get("device_address");
+            AttributeBase<?> relay = device.getAttrs().get("relay_l1");
+            AttributeBase<?> sampling = device.getAttrs().get("sample_tube_sampling_status");
+            if (so2Film == null || so2Film.getState() == null || so2Film.getState().getValue() == null) return false;
+            if (o3Film == null || o3Film.getState() == null || o3Film.getState().getValue() == null) return false;
+            if (so2Time == null || so2Time.getState() == null || so2Time.getState().getValue() == null) return false;
             if (temp == null || temp.getState() == null || temp.getState().getValue() == null) return false;
-            if (relay == null || relay.getState() == null || relay.getState().getValue() == null) return false;
             if (addr == null || addr.getState() == null || addr.getState().getValue() == null) return false;
+            if (relay == null || relay.getState() == null || relay.getState().getValue() == null) return false;
+            if (sampling == null || sampling.getState() == null || sampling.getState().getValue() == null) return false;
             return true;
         }, 3000);
+
+        verify(mockModbusSource).readHoldingRegisters(eq(233), eq(41));
+
+        assertEquals(11, ((Number) ((ModbusShortAttribute) device.getAttrs().get("so2_film_changer_status")).getState().getValue()).intValue());
+        assertEquals(22, ((Number) ((ModbusShortAttribute) device.getAttrs().get("nox_film_changer_status")).getState().getValue()).intValue());
+        assertEquals(33, ((Number) ((ModbusShortAttribute) device.getAttrs().get("co_film_changer_status")).getState().getValue()).intValue());
+        assertEquals(44, ((Number) ((ModbusShortAttribute) device.getAttrs().get("o3_film_changer_status")).getState().getValue()).intValue());
+        assertEquals(1, ((Number) ((ModbusShortAttribute) device.getAttrs().get("so2_film_changer_addr")).getState().getValue()).intValue());
+        assertEquals(2, ((Number) ((ModbusShortAttribute) device.getAttrs().get("nox_film_changer_addr")).getState().getValue()).intValue());
+        assertEquals("2026-08-15 14:30", device.getAttrs().get("so2_film_ch1_switch_time").getDisplayValue());
+        assertEquals("2026-01-02 09:05", device.getAttrs().get("nox_film_ch3_switch_time").getDisplayValue());
 
         assertEquals(220.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("voltage_l1")).getState().getValue(), 0.01f);
         assertEquals(220.1f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("voltage_l2")).getState().getValue(), 0.01f);
@@ -272,20 +346,81 @@ public class QCV2DeviceTest {
 
         assertEquals(25.5f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temperature")).getState().getValue(), 0.01f);
         assertEquals(60.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("humidity")).getState().getValue(), 0.01f);
-        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("relay_l1")).getState().getValue(), 0.01f);
-        assertEquals(0.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("relay_l2")).getState().getValue(), 0.01f);
+        assertEquals("合闸", ((BinaryAttribute) device.getAttrs().get("relay_l1")).getDisplayValue());
+        assertEquals("跳闸", ((BinaryAttribute) device.getAttrs().get("relay_l2")).getDisplayValue());
+        assertEquals("on", ((BinaryAttribute) device.getAttrs().get("relay_l1")).getI18nValue(null));
+        assertEquals("off", ((BinaryAttribute) device.getAttrs().get("relay_l2")).getI18nValue(null));
+        assertEquals("on", ((BinaryAttribute) device.getAttrs().get("sample_tube_sampling_status")).getI18nValue(null));
+        assertEquals("采样", device.getAttrs().get("sample_tube_sampling_status").getDisplayValue());
         assertEquals(40.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_alarm_high_l1")).getState().getValue(), 0.01f);
         assertEquals(10.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_alarm_low_l1")).getState().getValue(), 0.01f);
         assertEquals(20.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("startup_delay_l1")).getState().getValue(), 0.01f);
         assertEquals(45.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_trip_high_l1")).getState().getValue(), 0.01f);
-        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("over_temp_protection_l1")).getState().getValue(), 0.01f);
-        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("temp_humidity_comm_status")).getState().getValue(), 0.01f);
-        assertEquals(1.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("electric_param_comm_status")).getState().getValue(), 0.01f);
+        assertEquals("on", ((BinaryAttribute) device.getAttrs().get("over_temp_protection_l1")).getI18nValue(null));
+        assertEquals("启动", device.getAttrs().get("over_temp_protection_l1").getDisplayValue());
+        assertEquals("normal", device.getAttrs().get("temp_humidity_comm_status").getI18nValue(null));
+        assertEquals("正常", device.getAttrs().get("temp_humidity_comm_status").getDisplayValue());
+        assertEquals("normal", device.getAttrs().get("electric_param_comm_status").getI18nValue(null));
+        assertEquals("正常", device.getAttrs().get("electric_param_comm_status").getDisplayValue());
         assertEquals(2.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("device_address")).getState().getValue(), 0.01f);
     }
 
     @Test
-    public void testQCV2DeviceI18nDisplayNames_ForPowerSupplyAttrs() throws Exception {
+    public void testParseBinaryAndAlarmSelectRegisters() throws Exception {
+        short[] registers = new short[110];
+        registers[13] = 1;
+        registers[46] = 0;
+        registers[53] = 1;
+        registers[73] = 1;
+        registers[74] = 1;
+        registers[80] = 0;
+        registers[81] = 1;
+        registers[82] = 0;
+        registers[83] = 1;
+        registers[84] = 0;
+        registers[85] = 1;
+        registers[86] = 0;
+
+        invokePrivateMethod(device, "parseBlockData", registers, 0);
+
+        BinaryAttribute fan = (BinaryAttribute) device.getAttrs().get("fan_control");
+        BinaryAttribute light = (BinaryAttribute) device.getAttrs().get("light_control");
+        BinaryAttribute zeroGas = (BinaryAttribute) device.getAttrs().get("zero_gas_relay");
+        assertEquals("on", fan.getI18nValue(null));
+        assertEquals("off", light.getI18nValue(null));
+        assertEquals("on", zeroGas.getI18nValue(null));
+        assertEquals("开", fan.getDisplayValue());
+        assertEquals("关", light.getDisplayValue());
+        assertEquals("开", zeroGas.getDisplayValue());
+        assertEquals("0", device.getAttrs().get("ac1_power").getI18nValue(null));
+        assertEquals("1", device.getAttrs().get("ac2_power").getI18nValue(null));
+
+        assertEquals("normal", device.getAttrs().get("infrared_status").getI18nValue(null));
+        assertEquals("alarm", device.getAttrs().get("smoke_detector1").getI18nValue(null));
+        assertEquals("normal", device.getAttrs().get("smoke_detector2").getI18nValue(null));
+        assertEquals("alarm", device.getAttrs().get("temp_detector1").getI18nValue(null));
+        assertEquals("normal", device.getAttrs().get("temp_detector2").getI18nValue(null));
+        assertEquals("alarm", device.getAttrs().get("water_leak_detector").getI18nValue(null));
+        assertEquals("正常", device.getAttrs().get("infrared_status").getDisplayValue());
+        assertEquals("报警", device.getAttrs().get("smoke_detector1").getDisplayValue());
+        // 采样管漏水：硬件未实际返回，V2 暂不采集
+        assertNull(device.getAttrs().get("sample_tube_leak"));
+    }
+
+    @Test
+    public void testFormatFilmSwitchTime() {
+        assertEquals("2026-08-15 14:30", QCV2Device.formatFilmSwitchTime(
+                (short) 2026, (short) 8, (short) 15, (short) 14, (short) 30));
+        assertEquals("2026-01-02 09:05", QCV2Device.formatFilmSwitchTime(
+                (short) 26, (short) 1, (short) 2, (short) 9, (short) 5));
+        assertEquals("", QCV2Device.formatFilmSwitchTime(
+                (short) 0, (short) 0, (short) 0, (short) 0, (short) 0));
+        assertEquals("", QCV2Device.formatFilmSwitchTime(
+                (short) 2026, (short) 13, (short) 1, (short) 0, (short) 0));
+    }
+
+    @Test
+    public void testQCV2DeviceI18nDisplayNames() throws Exception {
         ResourceLoader.setLoadI18nResources(false);
         try {
             device.init();
@@ -303,6 +438,14 @@ public class QCV2DeviceTest {
             TestTools.assertAttributeDisplayName(device, "startup_delay_l1", "第1路开机启动延时");
             TestTools.assertAttributeDisplayName(device, "device_address", "设备地址");
             TestTools.assertAttributeDisplayName(device, "bench_temp", "站房温度");
+            TestTools.assertAttributeDisplayName(device, "light_control", "灯");
+            TestTools.assertAttributeDisplayName(device, "fan_control", "风机控制");
+            TestTools.assertAttributeDisplayName(device, "infrared_status", "红外状态");
+            TestTools.assertAttributeDisplayName(device, "smoke_detector1", "烟感1状态");
+            TestTools.assertAttributeDisplayName(device, "so2_film_changer_addr", "SO2换膜器地址");
+            TestTools.assertAttributeDisplayName(device, "nox_film_changer_status", "NOx换膜器状态");
+            TestTools.assertAttributeDisplayName(device, "so2_film_ch1_switch_time", "SO2换膜器通道1切换时间");
+            TestTools.assertAttributeDisplayName(device, "o3_gas_temp", "O3支管温度");
         } finally {
             ResourceLoader.setLoadI18nResources(true);
         }
