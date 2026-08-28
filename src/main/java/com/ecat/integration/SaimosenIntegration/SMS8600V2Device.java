@@ -6,7 +6,7 @@ import com.ecat.core.State.*;
 import com.ecat.core.State.Unit.*;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlerStrategy;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
-import com.ecat.integration.SerialIntegration.SerialTransactionStrategy;
+import com.ecat.integration.SerialIntegration.SerialPolling;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -98,40 +98,23 @@ public class SMS8600V2Device extends SerialDeviceBase {
         // 设备工作状态初值在就绪后（phase=READY）发布，避免预 ready 期 publish；
         // persistable=false 不持久化，重启首轮轮询拿到真实状态即覆盖。
         getAttrs().get("work_status").setDisplayValue(AttributeStatus.NORMAL.getName());
-        this.scheduledFuture = getScheduledExecutor().scheduleWithFixedDelay(() -> {
-            SerialTransactionStrategy.executeWithLambda(serialSource, source -> {
-                // 命令之间增加300ms延迟以适应设备性能
-                return getRealData()
-                    .thenCompose(v -> delay(300, TimeUnit.MILLISECONDS).thenCompose(w ->
-                            getStatusData().thenCompose(x ->
-                                    delay(300, TimeUnit.MILLISECONDS).thenCompose(z ->
-                                            getGasSetting().thenCompose(y ->
-                                                    delay(300, TimeUnit.MILLISECONDS).thenCompose(p ->
-                                                            getMinuteData()))))
-                    ));
-            }).thenAccept(result -> {
-                if (!Boolean.TRUE.equals(result)) {
-                    log.warn("XHCAL2000BDevice {} - Failed to read device data", getId());
-                }
-            }).exceptionally(ex -> {
-                log.error("XHCAL2000BDevice {} - Error reading device data", getId(), ex);
-                return null;
-            });
-        }, 0, 5, TimeUnit.SECONDS);
+        // 5 秒周期轮询：调度注册/事务包裹/锁忙消化/异常韧性/统一日志全部由
+        // SerialPolling SDK 托管。两步构建：round 体内以 polling.delay() 表达命令间
+        // 300ms 节拍（适应设备性能，收编本地 delay() 助手）
+        final SerialPolling polling = SerialPolling.on(this, serialSource)
+                .every(5, TimeUnit.SECONDS)
+                .interCommandDelayMs(300);
+        polling
+                .round(source -> getRealData()
+                        .thenCompose(v -> polling.delay().thenCompose(w ->
+                                getStatusData().thenCompose(x ->
+                                        polling.delay().thenCompose(z ->
+                                                getGasSetting().thenCompose(y ->
+                                                        polling.delay().thenCompose(p ->
+                                                                getMinuteData())))))))
+                .start();
     }
 
-
-    /**
-     * 创建异步延迟Future，用于在命令之间添加延迟以适应设备性能
-     * @param delay 延迟时间
-     * @param unit 时间单位
-     * @return CompletableFuture<Void>
-     */
-    private CompletableFuture<Void> delay(long delay, TimeUnit unit) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        getScheduledExecutor().schedule(() -> future.complete(null), delay, unit);
-        return future;
-    }
 
     private void createAttributes() {
         // 实时臭氧浓度

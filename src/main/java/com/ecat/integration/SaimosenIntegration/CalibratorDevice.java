@@ -1,21 +1,17 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
-import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.TextAttribute;
 import com.ecat.core.State.Unit.LiterFlowUnit;
-import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
+import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Tools;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.EndianConverter.AbstractEndianConverter;
@@ -40,11 +36,6 @@ public class CalibratorDevice extends SmsDeviceBase {
 
     BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
 
-    private ScheduledFuture<?> readFuture;
-
-    private ScheduledFuture<?> testControlFuture;
-    private boolean isDebug = false; // 是否开启调试模式（用于测试控制）
-    private int testCount = 0;
 
     public CalibratorDevice(ConfigEntry entry) {
         super(entry);
@@ -58,27 +49,20 @@ public class CalibratorDevice extends SmsDeviceBase {
 
     @Override
     public void start() {
-        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readRegisters, 0, 5, TimeUnit.SECONDS);
-
-        if (isDebug) {
-            testControlFuture = getScheduledExecutor().scheduleWithFixedDelay(this::controlMode, 60, 60, TimeUnit.SECONDS);
-        }
+        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
+        ModbusPolling.on(this, modbusSource)
+                .round(this::readRegisters)
+                .every(5, TimeUnit.SECONDS)
+                .start();
     }
 
     @Override
     public void stop() {
-        if (readFuture != null)
-            readFuture.cancel(true);
-
-        if (testControlFuture != null)
-            testControlFuture.cancel(true);
+        // 轮询生命周期已由 ModbusPolling SDK 内绑 RemovalHost（设备移除 sweep）收尾
     }
 
     @Override
     public void release() {
-        if (readFuture != null) {
-            readFuture.cancel(true);
-        }
         super.release();
     }
 
@@ -166,9 +150,6 @@ public class CalibratorDevice extends SmsDeviceBase {
 //                LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
 //                1, true, false, modbusSource, (short) 0x28, bigConverter));
 
-
-
-
         // 生成样气种类（写属性，short类型）
         setAttribute(new CalibratorGasSelectAttribute(
                 "calibrator_gas_select",
@@ -211,7 +192,6 @@ public class CalibratorDevice extends SmsDeviceBase {
                 (short) 0x49,
                 bigConverter));
 
-
         // GPTNO气体浓度（ppm）
         setAttribute(new ModbusFloatAttribute(
                 "gptno_concentration",
@@ -239,46 +219,44 @@ public class CalibratorDevice extends SmsDeviceBase {
                 bigConverter));
     }
 
-    protected void readRegisters() {
-        ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-            // 先读取第一个地址块
-            return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
-                    .thenCompose(firstResponse -> {
-                        try {
-                            // 处理第一块数据
-                            AttributeStatus status = AttributeStatus.NORMAL;
-                            short[] firstBlockRegisters = firstResponse.getShortData();
-                            parseFirstBlock(firstBlockRegisters, status);
+    protected CompletableFuture<Boolean> readRegisters(ModbusSource source) {
+        // 先读取第一个地址块
+        return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
+                .thenCompose(firstResponse -> {
+                    try {
+                        // 处理第一块数据
+                        AttributeStatus status = AttributeStatus.NORMAL;
+                        short[] firstBlockRegisters = firstResponse.getShortData();
+                        parseFirstBlock(firstBlockRegisters, status);
 
-                            // 再读取第二个地址块
-                            return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
-                                    .thenApply(secondResponse -> {
-                                        try {
-                                            // 处理第二块数据
-                                            short[] secondBlockRegisters = secondResponse.getShortData();
-                                            parseSecondBlock(secondBlockRegisters, status);
+                        // 再读取第二个地址块
+                        return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
+                                .thenApply(secondResponse -> {
+                                    try {
+                                        // 处理第二块数据
+                                        short[] secondBlockRegisters = secondResponse.getShortData();
+                                        parseSecondBlock(secondBlockRegisters, status);
 
-                                            // 设置所有属性状态
-                                            getAttrs().values().forEach(attr -> attr.setStatus(status));
-                                            publicAttrsState();
-                                            return true;
-                                        } catch (Exception e) {
-                                            log.error(
-                                                    "CalibratorDevice second block parsing failed: " + e.getMessage());
-                                            getAttrs().values()
-                                                    .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                            publicAttrsState();
-                                            return false;
-                                        }
-                                    });
-                        } catch (Exception e) {
-                            log.error("CalibratorDevice first block parsing failed: " + e.getMessage());
-                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                            publicAttrsState();
-                            return CompletableFuture.completedFuture(false);
-                        }
-                    });
-        });
+                                        // 设置所有属性状态
+                                        getAttrs().values().forEach(attr -> attr.setStatus(status));
+                                        publicAttrsState();
+                                        return true;
+                                    } catch (Exception e) {
+                                        log.error(
+                                                "CalibratorDevice second block parsing failed: " + e.getMessage());
+                                        getAttrs().values()
+                                                .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                                        publicAttrsState();
+                                        return false;
+                                    }
+                                });
+                    } catch (Exception e) {
+                        log.error("CalibratorDevice first block parsing failed: " + e.getMessage());
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return CompletableFuture.completedFuture(false);
+                    }
+                });
     }
 
     /**
@@ -393,72 +371,4 @@ public class CalibratorDevice extends SmsDeviceBase {
         }
     }
 
-    private void controlMode() {
-        CalibratorGasSelectAttribute gasAttr = (CalibratorGasSelectAttribute) getAttrs()
-                .get(AttributeClass.CALIBRATOR_GAS_SELECT.getName());
-
-        // 获取下一个选项
-        List<String> options = gasAttr.getOptions();
-        String curOption = gasAttr.getCurrentOption();
-        // 查找下一条命令
-        String nextOption = getNextCommand(options, curOption);
-
-        try {
-            // 发送命令
-            Collection<DeviceBase> device = ((SaimosenIntegration) getIntegration()).getAllDevices();
-            for (DeviceBase dev : device) {
-                if (dev instanceof CalibratorDevice) {
-                    ((CalibratorGasSelectAttribute) dev.getAttrs().get(AttributeClass.CALIBRATOR_GAS_SELECT.getName()))
-                            .selectOption(nextOption);
-                    if (testCount++ % 2 == 0) {
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.SO2_STD_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("60.0");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.NO_STD_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("60.0");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.CO_STD_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("6000.0");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.O3_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("0.4");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.OTHER_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("20.0");
-
-                    } else {
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.SO2_STD_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("10.0");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.NO_STD_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("20.0");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.CO_STD_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("30.0");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.O3_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("0.3");
-                        ((ModbusFloatAttribute) dev.getAttrs().get(AttributeClass.OTHER_GAS_CONCENTRATION.getName()))
-                                .setDisplayValue("50.0");
-                    }
-                }
-            }
-            // commandAttr.sendCommand(nextCommand).get();
-        } catch (Exception e) {
-            log.error("Failed to send command: " + e.getMessage());
-        }
-    }
-
-    // 辅助方法：获取下一条命令
-    private String getNextCommand(List<String> commands, String lastCommand) {
-        if (commands == null || commands.isEmpty()) {
-            return null;
-        }
-
-        // 如果lastCommand为空或不在列表中，返回第一条命令
-        if (lastCommand == null || !commands.contains(lastCommand)) {
-            return commands.get(0);
-        }
-
-        // 查找当前命令的索引
-        int currentIndex = commands.indexOf(lastCommand);
-
-        // 计算下一条命令的索引（如果是最后一条，则返回第一条）
-        int nextIndex = (currentIndex + 1) % commands.size();
-
-        return commands.get(nextIndex);
-    }
 }

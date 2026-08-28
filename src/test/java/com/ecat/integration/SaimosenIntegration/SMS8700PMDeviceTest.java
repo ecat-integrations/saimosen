@@ -11,7 +11,9 @@ import com.ecat.core.State.StateManager;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.ecat.integration.ModbusIntegration.Tools;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
@@ -25,12 +27,12 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 /**
@@ -41,8 +43,6 @@ public class SMS8700PMDeviceTest {
     private SMS8700PMDevice device;
     private AutoCloseable mockitoCloseable;
 
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<?> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
@@ -56,11 +56,12 @@ public class SMS8700PMDeviceTest {
         device = new SMS8700PMDevice(createTestEntry());
 
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
+        // ModbusPolling SDK 装配：测试显式构造（生产由设备 start 自持定时器）
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -82,6 +83,7 @@ public class SMS8700PMDeviceTest {
 
     @After
     public void tearDown() throws Exception {
+        device.stop();
         ResourceLoader.setLoadI18nResources(true);
         mockitoCloseable.close();
     }
@@ -113,6 +115,44 @@ public class SMS8700PMDeviceTest {
                 .title("SMS8700测试设备")
                 .data(config)
                 .build();
+    }
+
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （device::readAndUpdate），节拍测试自持 50ms——与生产 every(10s) 解耦，负向观察窗从 6s 收
+     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
+     * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPoll 正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        return ModbusPolling.on(device, mockModbusSource)
+                .round(device::readAndUpdate)
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
+    @Test
+    public void testStart_SchedulesProductionPoll() throws Exception {
+        // 生产 start() 接线回归（快节拍改造后负向测试不再走 start()，接线覆盖归本测试）：
+        // 首轮 latch 等 round 真正读源 + REG 块参数 verify；生产节拍 10s，测试 ms 级收尾
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+
+        device.start();
+        assertTrue("首轮（initialDelay=0）必须立即发起 REG 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(
+                SMS8700PMDevice.REG_BLOCK_START, SMS8700PMDevice.REG_BLOCK_COUNT);
+
+        // 生产轮询生命周期收尾（不 sweep 会泄漏至类外，bugs/bug-record-20260828-224500）
+        device.stop();
+        device.cancelManagedTasks();
     }
 
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
@@ -241,13 +281,35 @@ public class SMS8700PMDeviceTest {
     }
 
     @Test
-    public void testStart_SchedulesPoll() {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(10L), eq(java.util.concurrent.TimeUnit.SECONDS)))
-                .thenAnswer(inv -> mockScheduledFuture);
-        device.start();
-        verify(mockExecutor).scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(10L), eq(java.util.concurrent.TimeUnit.SECONDS));
+    public void testStart_SchedulesPoll() throws Exception {
+        // 首轮 latch + 块参数 verify（抄 chko/cecep 形态）：latch 等 round 真正读源
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮（initialDelay=0）必须立即发起 REG 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(
+                SMS8700PMDevice.REG_BLOCK_START, SMS8700PMDevice.REG_BLOCK_COUNT);
+
         device.stop();
-        verify(mockScheduledFuture).cancel(true);
+        device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
+        probe.armStrayDetector();
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「11s 窗 > 10s 生产周期」覆盖强度）
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // sweep 已执行的直接证据：宿主进入已扫状态，再注册移除动作被拒（RemovalHost 契约）
+        try {
+            device.onRemove(() -> { });
+            org.junit.Assert.fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (java.util.concurrent.RejectedExecutionException expected) {
+        }
     }
 
     @Test
@@ -259,15 +321,9 @@ public class SMS8700PMDeviceTest {
                 SMS8700PMDevice.REG_BLOCK_START, SMS8700PMDevice.REG_BLOCK_COUNT))
                 .thenReturn(CompletableFuture.completedFuture(response));
 
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(10L), eq(java.util.concurrent.TimeUnit.SECONDS)))
-                .thenAnswer(inv -> {
-                    Runnable r = inv.getArgument(0);
-                    r.run();
-                    return mockScheduledFuture;
-                });
-
-        device.start();
-        Thread.sleep(100);
+        // 直调 round（取代旧「捕获 Runnable 手动 run + sleep」形态）：mock 读全为完成态，
+        // get(2s) 有界护栏即回，确定性同步零 sleep
+        device.readAndUpdate(mockModbusSource).get(2, java.util.concurrent.TimeUnit.SECONDS);
         verifyFloat("pm10", 20.81);
         verifyFloat("pm2_5", 5.98);
     }

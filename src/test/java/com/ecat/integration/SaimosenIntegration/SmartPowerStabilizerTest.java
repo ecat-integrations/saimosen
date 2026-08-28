@@ -9,7 +9,9 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
@@ -24,8 +26,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
@@ -44,8 +45,6 @@ public class SmartPowerStabilizerTest {
     private SmartPowerStabilizer stabilizer;
     private AutoCloseable mockitoCloseable;
     
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<?> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
@@ -67,11 +66,12 @@ public class SmartPowerStabilizerTest {
 
         // mock modbusSource 的 acquire() 函数
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
+        // ModbusPolling SDK 装配：测试显式构造（生产由设备 start 自持定时器）
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -80,6 +80,7 @@ public class SmartPowerStabilizerTest {
     
     @After
     public void tearDown() throws Exception {
+        stabilizer.stop();
         mockitoCloseable.close();
     }
 
@@ -108,6 +109,44 @@ public class SmartPowerStabilizerTest {
             .title("智能稳压电源")
             .data(config)
             .build();
+    }
+
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （stabilizer::readRegisters），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
+     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
+     * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPolling 正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        return ModbusPolling.on(stabilizer, mockModbusSource)
+                .round(stabilizer::readRegisters)
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
+    @Test
+    public void testStart_SchedulesProductionPolling() throws Exception {
+        // 生产 start() 接线回归（快节拍改造后 testStart_SchedulesReadTask 不再走 start()，
+        // 接线覆盖归本测试）：首轮 latch 等 round 真正读源 + DEFAULT 块参数 verify；
+        // 生产节拍 5s，测试 ms 级收尾
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+
+        stabilizer.start();
+        assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 41);
+
+        // 生产轮询生命周期收尾（不 sweep 会泄漏至类外，bugs/bug-record-20260828-224500）
+        stabilizer.stop();
+        stabilizer.cancelManagedTasks();
     }
 
     // 反射辅助方法
@@ -168,6 +207,10 @@ public class SmartPowerStabilizerTest {
 
     private void initDevice() throws Exception {
         stabilizer.init();
+        // 直调 round 须就绪（publicAttrsState 门禁；旧反射+丢 CF 形态把门禁 ISE 静默吞掉，
+        // 直调取结果后显形——补 StateManager 桩 + markReady 对齐生产时序）
+        when(mockEcatCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
+        stabilizer.markReady();
         setPrivateField(stabilizer, "core", mockEcatCore);
         setPrivateField(stabilizer, "modbusSource", mockModbusSource);
         setPrivateField(stabilizer, "modbusIntegration", mockModbusIntegration);
@@ -199,44 +242,38 @@ public class SmartPowerStabilizerTest {
     
     @Test
     public void testStart_SchedulesReadTask() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-                .thenAnswer(v->mockScheduledFuture);
-                
-        // 执行start方法
-        stabilizer.start();
-        
-        // 验证定时任务是否被调度
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+        // 首轮 latch + 块参数 verify（抄 chko/cecep 形态）：latch 等 round 真正读源
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
 
-        ScheduledFuture<?> actualFuture = (ScheduledFuture<?>) getPrivateField(stabilizer, "readFuture");
-        assertEquals(mockScheduledFuture, actualFuture);
+        // 快节拍轮询同经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄）；首轮立即发射
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 41);
+
+        // lifecycle chokepoint：stop + sweep 执行移除动作；
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        stabilizer.stop();
+        stabilizer.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // 已扫状态=再注册被拒（RemovalHost 契约）
+        try {
+            stabilizer.onRemove(() -> { });
+            org.junit.Assert.fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (java.util.concurrent.RejectedExecutionException expected) {
+        }
     }
-    
-    // @Test
-    // public void testStop_CancelsScheduledTasks() throws Exception {
-    //     // 先启动设备
-    //     stabilizer.start();
-        
-    //     // 执行stop方法
-    //     stabilizer.stop();
-        
-    //     // 验证任务是否被取消
-    //     verify(mockScheduledFuture, times(1)).cancel(true);
-    // }
-    
-    // @Test
-    // public void testRelease_CancelsReadFuture() throws Exception {
-    //     // 先启动设备
-    //     stabilizer.start();
-        
-    //     // 执行release方法
-    //     stabilizer.release();
-        
-    //     // 验证任务是否被取消
-    //     verify(mockScheduledFuture, times(1)).cancel(true);
-    // }
-    
+
     @Test
     public void testReadRegisters_ReadsAndParsesData() throws Exception {
         // 准备模拟寄存器数据（从真实命令数据解析）
@@ -277,7 +314,8 @@ public class SmartPowerStabilizerTest {
         // responseField.set(mockModbusSource, registers);
         
         // 执行读取
-        invokePrivateMethod(stabilizer, "readRegisters");
+        // 直调 round：mock 读全为完成态，get 有界护栏即回
+        stabilizer.readRegisters(mockModbusSource).get(2, TimeUnit.SECONDS);
         
         // 验证电压属性值（以第一路为例）
         ModbusScalableFloatSRAttribute voltageL1 =

@@ -17,6 +17,8 @@ import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import org.junit.After;
@@ -30,12 +32,12 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -49,8 +51,6 @@ public class SO2DeviceTest {
     private SO2Device so2Device;
     private AutoCloseable mockitoCloseable;
     
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<?> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
@@ -68,11 +68,11 @@ public class SO2DeviceTest {
         
         // 先设置所有mock
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -129,6 +129,20 @@ public class SO2DeviceTest {
             .build();
     }
 
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （readAndUpdate），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
+     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
+     * 生产 start() 的节拍/接线由 testStart_SchedulesReadTask 正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        return ModbusPolling.on(so2Device, mockModbusSource)
+                .round(so2Device::readAndUpdate)
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
     // 反射辅助方法
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = findField(target.getClass(), fieldName);
@@ -154,6 +168,7 @@ public class SO2DeviceTest {
         }
     }
     
+
     private Object invokePrivateMethod(Object target, String methodName, Object... args) throws Exception {
         Class<?>[] parameterTypes = new Class[args.length];
         for (int i = 0; i < args.length; i++) {
@@ -274,44 +289,57 @@ public class SO2DeviceTest {
     
     @Test
     public void testStart_SchedulesReadTask() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-                .thenAnswer(v->mockScheduledFuture);
-                
-        // 执行start方法
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+
         so2Device.start();
-        
-        // 验证定时任务是否被调度
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+
+        // 首轮立即发射（确定性同步：latch 等 round 真正读源，非定时猜测）
+        assertTrue("首轮（initialDelay=0）必须立即发起 float 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 32);
     }
     
     @Test
     public void testStop_CancelsScheduledTasks() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
-        so2Device.start();
-        
-        // 执行stop方法
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
         so2Device.stop();
-        
-        // 注意：新架构中stop方法没有实际实现，所以不会调用cancel
-        // 这个测试主要验证stop方法可以正常调用而不抛出异常
-        assertTrue("Stop method should complete without exception", true);
+        so2Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // sweep 已执行的直接证据：宿主进入已扫状态，再注册移除动作被拒（RemovalHost 契约）
+        try {
+            so2Device.onRemove(() -> { });
+            org.junit.Assert.fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (java.util.concurrent.RejectedExecutionException expected) {
+        }
     }
     
     @Test
     public void testRelease_CancelsReadFuture() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
-        so2Device.start();
-        
-        // 执行release方法
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
+        // disableEntry 同序：stop → sweep（移除动作停轮询）→ release（源释放）
+        so2Device.stop();
+        so2Device.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("release 前 stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         so2Device.release();
-        
-        // 注意：新架构中release方法调用super.release()，不会直接调用cancel
-        // 验证release方法可以正常调用而不抛出异常
-        assertTrue("Release method should complete without exception", true);
+        verify(mockModbusSource).closeModbus();
     }
     
     @Test
@@ -399,6 +427,8 @@ public class SO2DeviceTest {
         when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
 
         // 模拟分段读取调用
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
@@ -410,7 +440,7 @@ public class SO2DeviceTest {
 
         // 执行读取并等待异步操作完成
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS); // 等待异步操作完成
 
         // 验证分段读取被正确调用
@@ -461,12 +491,14 @@ public class SO2DeviceTest {
         // 模拟分段读取中第一段失败
         CompletableFuture<ReadHoldingRegistersResponse> failedFuture = new CompletableFuture<>();
         failedFuture.completeExceptionally(new RuntimeException("Modbus communication error"));
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(failedFuture);
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(failedFuture);
 
         // 执行读取并等待异步操作完成
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS); // 等待异步操作完成
 
         // 验证返回值为false（表示异常处理）
@@ -480,12 +512,14 @@ public class SO2DeviceTest {
         ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
         when(mockFloatResponse.getShortData()).thenReturn(null); // 返回null会触发异常
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
 
         // 执行读取并等待异步操作完成
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
 
         // 验证返回值为false（表示异常处理）
@@ -543,22 +577,23 @@ public class SO2DeviceTest {
     @Test
     public void testDeviceLifecycle() throws Exception {
         // 测试完整的设备生命周期
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-            .thenAnswer(v->mockScheduledFuture);
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
 
         // 1. 初始化
         so2Device.init();
         assertEquals(43, so2Device.getAttrs().size());
 
-        // 2. 启动
-        so2Device.start();
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+        // 2. 启动（首轮 latch：确定性确认轮询已注册运行，非仅不抛异常）
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("start 后首轮轮询必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 
-        // 3. 停止
+        // 3. 停止（lifecycle chokepoint：stop + sweep 执行 SDK 注册的移除动作停轮询）；
+        //    负向窗 600ms 覆盖 >10 个 50ms 周期（等价原「窗>5s 生产周期」的 cancel 因果覆盖）
         so2Device.stop();
-        // 注意：新架构中stop方法没有实际实现，不会调用cancel
+        so2Device.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
 
         // 4. 释放资源
         so2Device.release();
@@ -593,6 +628,8 @@ public class SO2DeviceTest {
         when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
         when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
@@ -604,7 +641,7 @@ public class SO2DeviceTest {
 
         // 执行分段读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
 
         // 验证结果
@@ -648,6 +685,8 @@ public class SO2DeviceTest {
         CompletableFuture<ReadHoldingRegistersResponse> failedFuture = new CompletableFuture<>();
         failedFuture.completeExceptionally(new RuntimeException("Second segment failed"));
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
@@ -656,7 +695,7 @@ public class SO2DeviceTest {
         
         // 执行分段读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
 
         // 主测量段成功时仍提交更新（允许部分段失败）
@@ -683,6 +722,8 @@ public class SO2DeviceTest {
         when(mockFloatResponse.getShortData()).thenReturn(mockFloatRegisters);
         when(mockU16Response.getShortData()).thenReturn(null); // 第二段返回null触发异常
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
@@ -691,7 +732,7 @@ public class SO2DeviceTest {
 
         // 执行分段读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 主测量段成功时仍提交更新（U16 段失败仅跳过该段）
@@ -749,6 +790,8 @@ public class SO2DeviceTest {
         when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
         when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
@@ -760,7 +803,7 @@ public class SO2DeviceTest {
 
         // 执行分段读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
 
         // 验证结果
@@ -778,7 +821,7 @@ public class SO2DeviceTest {
 
         // 再次执行分段读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future2 = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future2 = so2Device.readAndUpdate(mockModbusSource);
         result = future2.get(5, TimeUnit.SECONDS);
 
         // 验证结果
@@ -908,7 +951,7 @@ public class SO2DeviceTest {
         setupSpanCalibrationReadMocks();
 
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
@@ -926,7 +969,7 @@ public class SO2DeviceTest {
         setupMeasureModeReadMocks();
 
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
@@ -944,7 +987,7 @@ public class SO2DeviceTest {
         setupSpanCalibrationReadMocks();
 
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
@@ -962,7 +1005,7 @@ public class SO2DeviceTest {
         setupSpanCalibrationReadMocksWithAlarm((short) 0x0001);
 
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
@@ -984,7 +1027,7 @@ public class SO2DeviceTest {
         setupSpanCalibrationReadMocksWithAlarm((short) 0x0001);
 
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(so2Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = so2Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS);
 
         NumericAttribute so2Attr = (NumericAttribute) so2Device.getAttrs().get("so2");
@@ -1040,6 +1083,8 @@ public class SO2DeviceTest {
         when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
         when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))
@@ -1066,6 +1111,8 @@ public class SO2DeviceTest {
         when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
         when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(32)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(38), eq(26)))

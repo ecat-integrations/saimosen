@@ -12,7 +12,9 @@ import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
@@ -29,12 +31,13 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -50,21 +53,17 @@ public class QCDeviceTest {
     private QCDevice device;
     private AutoCloseable mockitoCloseable;
 
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<?> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
     @Mock private BusRegistry mockBusRegistry;
     
-    private ScheduledExecutorService realExecutor; // 用于delay方法的真实executor
+    /** 调度桩说明（W7 终态）：块间节拍走 polling.delay(ms)（ModbusSdkTimers 域池），
+     *  TaskManager 无调度引擎入口（轮询定时归域 SDK 自持），本测不再桩调度路由。 */
 
     @Before
     public void setUp() throws Exception {
         mockitoCloseable = MockitoAnnotations.openMocks(this);
-        
-        // 创建真实的ScheduledExecutorService用于delay方法
-        realExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
         ConfigEntry entry = createTestEntry();
         device = new QCDevice(entry);
@@ -74,24 +73,26 @@ public class QCDeviceTest {
         setPrivateField(device, "modbusIntegration", mockModbusIntegration);
 
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(realExecutor); // 使用真实executor
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
 
         device.init();
+        // 直调 round 须就绪（publicAttrsState 门禁；旧反射+丢 CF 形态把门禁 ISE 静默吞掉，
+        // 直调取结果后显形——补 StateManager 桩 + markReady 对齐生产时序）
+        when(mockEcatCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
+        device.markReady();
     }
 
     @After
     public void tearDown() throws Exception {
-        if (realExecutor != null) {
-            realExecutor.shutdownNow();
-        }
+        device.stop();
         mockitoCloseable.close();
     }
 
@@ -128,16 +129,52 @@ public class QCDeviceTest {
             .build();
     }
 
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （readRegisters，两步构建同 QCDevice#start），节拍测试自持 50ms——与生产 every(5s)
+     * 解耦，负向观察窗从 6s 收到 600ms 仍覆盖 >10 个周期。注意：round 链内块间节拍经
+     * secondBlockGapMs/thirdBlockGapMs（生产 1s/500ms），快节拍下调用方须先注入小值，
+     * 否则单轮 ≥1s、600ms 窗盖不住一个周期（负向覆盖强度受损）。
+     * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPolling 正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        final ModbusPolling polling = ModbusPolling.on(device, mockModbusSource);
+        return polling.round(source -> device.readRegisters(polling, source))
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
+    @Test
+    public void testStart_SchedulesProductionPolling() throws Exception {
+        // 生产 start() 接线回归（快节拍改造后 lifecycle 测试不再走 start()，接线覆盖归本
+        // 测试）：首轮 latch 等 round 真正读源 + FIRST 块参数 verify。块间节拍注入 1ms
+        // （生产 1s：设备性能要求，节拍值与接线正交）——sweep 后在飞续段即时安静
+        device.secondBlockGapMs = 1L;
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+
+        device.start();
+        assertTrue("首轮（initialDelay=0）必须立即发起 FIRST 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(
+                QCDevice.FIRST_BLOCK_START, QCDevice.FIRST_BLOCK_COUNT);
+
+        // 生产轮询生命周期收尾（不 sweep 会泄漏至类外，bugs/bug-record-20260828-224500）
+        device.stop();
+        device.cancelManagedTasks();
+    }
+
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = findField(target.getClass(), fieldName);
         field.setAccessible(true);
         field.set(target, value);
-    }
-
-    private Object getPrivateField(Object target, String fieldName) throws Exception {
-        Field field = findField(target.getClass(), fieldName);
-        field.setAccessible(true);
-        return field.get(target);
     }
 
     private Field findField(Class<?> clazz, String fieldName) throws NoSuchFieldException {
@@ -329,23 +366,41 @@ public class QCDeviceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    public void testStart_SchedulesReadTask() throws Exception {
-        // 使用spy来跟踪realExecutor的调用
-        ScheduledExecutorService spyExecutor = org.mockito.Mockito.spy(realExecutor);
-        setPrivateField(device, "core", mockEcatCore);
-        TaskManager mockTaskManager = mock(TaskManager.class);
-        when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(spyExecutor);
-        
-        device.start();
+    public void testLifecycle_StartStopSweep() throws Exception {
+        // 首轮 latch + 块参数 verify（抄 chko/cecep 形态）：latch 等 round 真正读源
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
 
-        // 验证scheduleWithFixedDelay被调用
-        verify(spyExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+        // 快节拍轮询同经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄到设备字段）；
+        // 块间节拍注入 1ms（生产 1s：设备性能要求）——否则单轮 ≥1s，600ms 负向窗盖不住
+        // 一个周期（覆盖强度受损）
+        device.secondBlockGapMs = 1L;
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮（initialDelay=0）必须立即发起 FIRST 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(
+                QCDevice.FIRST_BLOCK_START, QCDevice.FIRST_BLOCK_COUNT);
 
-        ScheduledFuture<?> actualFuture = (ScheduledFuture<?>) getPrivateField(device, "readFuture");
-        assertNotNull(actualFuture);
+        // lifecycle chokepoint：stop + sweep 执行 SDK 注册的移除动作停轮询
+        device.stop();
+        device.cancelManagedTasks();
+        probe.armStrayDetector();
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // sweep 已执行的直接证据=宿主进入已扫状态（再注册被拒，RemovalHost 契约）
+        try {
+            device.onRemove(() -> { });
+            fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (RejectedExecutionException expected) {
+        }
     }
 
     @Test
@@ -378,7 +433,13 @@ public class QCDeviceTest {
         when(mockModbusSource.readHoldingRegisters(eq(110), eq(123)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse2));
 
-        invokePrivateMethod(device, "readRegisters");
+        // 直调 round（同包可见）：整链（含块间节拍 + finishReadCycle）完成即回。
+        // 节拍经 polling.delay(ms) 糖：同包直调须自备未 start 的构建器实例（生产由
+        // start() 两步构建注入 round，见 QCDevice#start）。块间节拍注入 1ms（生产 1s：
+        // 设备性能要求，链路语义与节拍正交——三块全读+finishReadCycle 断言不受影响）
+        device.secondBlockGapMs = 1L;
+        device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
+                .get(10, TimeUnit.SECONDS);
 
         // readRegisters 异步解析两块响应、逐属性 updateValue 建在途 midState；各属性 state 就绪时序不同。
         // 必须等到全部 12 个待断言属性 state 都就绪，否则 getState() 为 null 会致断言 NPE（此前只等
@@ -390,7 +451,7 @@ public class QCDeviceTest {
         // 内「写 sampling_tube_residence_time（开头）」与「标定 pm10_std_flow（靠后）」是两次独立的 midState 写，
         // 其间 getState() 能读到「residence_time 已置非空 / pm10_std_flow 仍原始 15.948」的中间态。
         // 「12 属性 getValue()!=null」（residence_time 非 null 即满足）只能证明标定【已开始】，不能证明 pm10 标定【已完成】。
-        // -T1C 全机 CPU 争抢下，realExecutor 单线程恰在此两步间被抢占，50ms 轮询撞上中间态 → 断言读 15.948（非 16.28）flake。
+        // -T1C 全机 CPU 争抢下，调度线程恰在此两步间被抢占，50ms 轮询撞上中间态 → 断言读 15.948（非 16.28）flake。
         //
         // 修：除 12 属性非空外，再等两个标定属性（pm10_std_flow 标定段首个、pm2_5_working_flow 末个，夹住整个标定段）
         // 连续两轮值相同——单次 readRegisters 内标定只发生一次（raw→calibrated 后即稳），稳态即标定完成。

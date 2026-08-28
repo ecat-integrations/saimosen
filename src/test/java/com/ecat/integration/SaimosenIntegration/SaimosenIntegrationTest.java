@@ -559,7 +559,6 @@ public class SaimosenIntegrationTest {
 
             com.ecat.core.Task.TaskManager mockTaskManager = mock(com.ecat.core.Task.TaskManager.class);
             when(mockCore.getTaskManager()).thenReturn(mockTaskManager);
-            when(mockTaskManager.getExecutorService()).thenReturn(mock(java.util.concurrent.ScheduledExecutorService.class));
 
             com.ecat.core.Bus.BusRegistry mockBusRegistry = mock(com.ecat.core.Bus.BusRegistry.class);
             doNothing().when(mockBusRegistry).publish(any(com.ecat.core.Bus.event.BusEvent.class));
@@ -608,10 +607,6 @@ public class SaimosenIntegrationTest {
 
             com.ecat.core.Task.TaskManager mockTaskManager = mock(com.ecat.core.Task.TaskManager.class);
             when(mockCore.getTaskManager()).thenReturn(mockTaskManager);
-
-            java.util.concurrent.ScheduledExecutorService mockExecutor =
-                mock(java.util.concurrent.ScheduledExecutorService.class);
-            when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         } catch (Exception e) {
             // Ignore reflection errors

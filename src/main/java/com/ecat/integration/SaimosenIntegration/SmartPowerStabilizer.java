@@ -2,7 +2,7 @@ package com.ecat.integration.SaimosenIntegration;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
@@ -14,7 +14,8 @@ import com.ecat.core.State.Unit.PowerUnit;
 import com.ecat.core.State.Unit.RatioUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.core.State.Unit.VoltageUnit;
-import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
+import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.EndianConverter.AbstractEndianConverter;
 import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter;
@@ -36,8 +37,6 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
     // 大端模式转换器
     private BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
     // 读取任务
-    private ScheduledFuture<?> readFuture;
-
 
 
     public SmartPowerStabilizer(ConfigEntry entry) {
@@ -56,16 +55,18 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
      * 启动设备数据读取
      */
     public void start() {
-        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readRegisters, 0, 5, TimeUnit.SECONDS);
+        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
+        ModbusPolling.on(this, modbusSource)
+                .round(this::readRegisters)
+                .every(5, TimeUnit.SECONDS)
+                .start();
     }
 
     /**
      * 停止设备数据读取
      */
     public void stop() {
-        if (readFuture != null) {
-            readFuture.cancel(true);
-        }
+        // 轮询生命周期已由 ModbusPolling SDK 内绑 RemovalHost（设备移除 sweep）收尾
     }
 
     /**
@@ -309,30 +310,23 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
     /**
      * 读取所有寄存器并解析数据
      */
-    private void readRegisters() {
-        if (!BLOCK_CONFIG.containsKey("DEFAULT")) {
-            log.error("Unsupported device configuration for reading");
-            return;
-        }
-
-        ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-            RegisterBlock block = BLOCK_CONFIG.get("DEFAULT");
-            return source.readHoldingRegisters(block.startAddress, block.registerCount)
-                    .thenApply(response -> {
-                        try {
-                            short[] registers = response.getShortData();
-                            parseRegisters(registers);
-                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
-                            publicAttrsState();
-                            return true;
-                        } catch (Exception e) {
-                            log.error("SmartPowerStabilizer parsing failed: " + e.getMessage());
-                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                            publicAttrsState();
-                            return false;
-                        }
-                    });
-        });
+    CompletableFuture<Boolean> readRegisters(ModbusSource source) {
+        RegisterBlock block = BLOCK_CONFIG.get("DEFAULT");
+        return source.readHoldingRegisters(block.startAddress, block.registerCount)
+                .thenApply(response -> {
+                    try {
+                        short[] registers = response.getShortData();
+                        parseRegisters(registers);
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
+                        publicAttrsState();
+                        return true;
+                    } catch (Exception e) {
+                        log.error("SmartPowerStabilizer parsing failed: " + e.getMessage());
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return false;
+                    }
+                });
     }
 
     /**

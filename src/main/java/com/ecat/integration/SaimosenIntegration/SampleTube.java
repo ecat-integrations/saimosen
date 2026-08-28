@@ -2,7 +2,7 @@ package com.ecat.integration.SaimosenIntegration;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
@@ -17,7 +17,9 @@ import com.ecat.core.State.Unit.PowerUnit;
 import com.ecat.core.State.Unit.RatioUnit;
 import com.ecat.core.State.Unit.SpeedUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
+import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.EndianConverter.AbstractEndianConverter;
 import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter;
@@ -54,8 +56,6 @@ public class SampleTube extends SmsDeviceBase {
     // 大端模式转换器
     private BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
     // 读取任务
-    private ScheduledFuture<?> readFuture;
-
     private final DeviceConfig deviceConfig;
 
     public SampleTube(ConfigEntry entry) {
@@ -104,16 +104,18 @@ public class SampleTube extends SmsDeviceBase {
     public void start() {
         // 配置派生属性在 id 解析后（start 时机）赋值，确保 state.deviceId 为持久化 id
         initConfigDerivedAttributeValues();
-        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readRegisters, 0, 5, TimeUnit.SECONDS);
+        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
+        ModbusPolling.on(this, modbusSource)
+                .round(this::readRegisters)
+                .every(5, TimeUnit.SECONDS)
+                .start();
     }
 
     /**
      * 停止设备数据读取
      */
     public void stop() {
-        if (readFuture != null) {
-            readFuture.cancel(true);
-        }
+        // 轮询生命周期已由 ModbusPolling SDK 内绑 RemovalHost（设备移除 sweep）收尾
     }
 
     /**
@@ -319,30 +321,23 @@ public class SampleTube extends SmsDeviceBase {
     /**
      * 读取所有寄存器并解析数据
      */
-    private void readRegisters() {
-        if (!BLOCK_CONFIG.containsKey("DEFAULT")) {
-            log.error("Unsupported device configuration for reading");
-            return;
-        }
-
-        ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-            RegisterBlock block = BLOCK_CONFIG.get("DEFAULT");
-            return source.readHoldingRegisters(block.startAddress, block.registerCount)
-                    .thenApply(response -> {
-                        try {
-                            short[] registers = response.getShortData();
-                            parseRegisters(registers);
-                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
-                            publicAttrsState();
-                            return true;
-                        } catch (Exception e) {
-                            log.error("SampleTube parsing failed: " + e.getMessage());
-                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                            publicAttrsState();
-                            return false;
-                        }
-                    });
-        });
+    CompletableFuture<Boolean> readRegisters(ModbusSource source) {
+        RegisterBlock block = BLOCK_CONFIG.get("DEFAULT");
+        return source.readHoldingRegisters(block.startAddress, block.registerCount)
+                .thenApply(response -> {
+                    try {
+                        short[] registers = response.getShortData();
+                        parseRegisters(registers);
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
+                        publicAttrsState();
+                        return true;
+                    } catch (Exception e) {
+                        log.error("SampleTube parsing failed: " + e.getMessage());
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return false;
+                    }
+                });
     }
 
     /**

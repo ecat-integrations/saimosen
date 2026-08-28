@@ -18,6 +18,8 @@ import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import org.junit.After;
@@ -31,14 +33,13 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static com.ecat.integration.ModbusIntegration.Tools.convertLittleEndianByteSwapToFloat;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-// import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -52,8 +53,6 @@ public class CODeviceTest {
     private CODevice coDevice;
     private AutoCloseable mockitoCloseable;
     
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<?> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
@@ -68,11 +67,11 @@ public class CODeviceTest {
         
         // 先设置所有mock
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -127,6 +126,20 @@ public class CODeviceTest {
             .build();
     }
 
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （coDevice::readAndUpdate），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
+     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
+     * 生产 start() 的节拍/接线由各 testStart_* 首轮正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        return ModbusPolling.on(coDevice, mockModbusSource)
+                .round(coDevice::readAndUpdate)
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
     // 反射辅助方法
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = findField(target.getClass(), fieldName);
@@ -152,6 +165,7 @@ public class CODeviceTest {
         }
     }
     
+
     private Object invokePrivateMethod(Object target, String methodName, Object... args) throws Exception {
         Class<?>[] parameterTypes = new Class[args.length];
         for (int i = 0; i < args.length; i++) {
@@ -281,44 +295,57 @@ public class CODeviceTest {
     
     @Test
     public void testStart_SchedulesReadTask() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-                .thenAnswer(v->mockScheduledFuture);
-                
-        // 执行start方法
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+
         coDevice.start();
-        
-        // 验证定时任务是否被调度
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+
+        // 首轮立即发射（确定性同步：latch 等 round 真正读源，非定时猜测）
+        assertTrue("首轮（initialDelay=0）必须立即发起 float 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 40);
     }
     
     @Test
     public void testStop_CancelsScheduledTasks() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
-        coDevice.start();
-        
-        // 执行stop方法
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
         coDevice.stop();
-        
-        // 重构后的stop方法可能不直接取消scheduledFuture，只验证stop方法被调用
-        // 验证stop方法执行成功（不抛出异常）
-        assertTrue("stop方法应该执行成功", true);
+        coDevice.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // sweep 已执行的直接证据：宿主进入已扫状态，再注册移除动作被拒（RemovalHost 契约）
+        try {
+            coDevice.onRemove(() -> { });
+            org.junit.Assert.fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (java.util.concurrent.RejectedExecutionException expected) {
+        }
     }
     
     @Test
     public void testRelease_CancelsReadFuture() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
-        coDevice.start();
-        
-        // 执行release方法
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
+        // disableEntry 同序：stop → sweep（移除动作停轮询）→ release（源释放）
+        coDevice.stop();
+        coDevice.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("release 前 stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         coDevice.release();
-        
-        // 重构后的release方法可能不直接取消scheduledFuture，只验证release方法被调用
-        // 验证release方法执行成功（不抛出异常）
-        assertTrue("release方法应该执行成功", true);
+        verify(mockModbusSource).closeModbus();
     }
 
     
@@ -392,7 +419,7 @@ public class CODeviceTest {
         
         // 执行读取并等待异步操作完成
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS); // 等待异步操作完成
         
         // 验证分段读取被正确调用
@@ -435,12 +462,14 @@ public class CODeviceTest {
         // 模拟分段读取中第一段失败
         CompletableFuture<ReadHoldingRegistersResponse> failedFuture = new CompletableFuture<>();
         failedFuture.completeExceptionally(new RuntimeException("Modbus communication error"));
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(failedFuture);
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(40)))
             .thenReturn(failedFuture);
         
         // 执行读取并等待异步操作完成
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS); // 等待异步操作完成
         
         // 验证返回值为false（表示异常处理）
@@ -456,12 +485,14 @@ public class CODeviceTest {
         ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
         when(mockFloatResponse.getShortData()).thenReturn(null); // 返回null会触发异常
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(40)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         
         // 执行读取并等待异步操作完成
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 验证返回值为false（表示异常处理）
@@ -508,23 +539,24 @@ public class CODeviceTest {
     @Test
     public void testDeviceLifecycle() throws Exception {
         // 测试完整的设备生命周期
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-            .thenAnswer(v->mockScheduledFuture);
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
         
         // 1. 初始化
         coDevice.init();
         assertEquals(40, coDevice.getAttrs().size());
 
-        // 2. 启动
-        coDevice.start();
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
-        
-        // 3. 停止
+        // 2. 启动（首轮 latch：确定性确认轮询已注册运行，非仅不抛异常）
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("start 后首轮轮询必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
+        // 3. 停止（lifecycle chokepoint：stop + sweep 执行 SDK 注册的移除动作停轮询）；
+        //    负向窗 600ms 覆盖 >10 个 50ms 周期（等价原「窗>5s 生产周期」的 cancel 因果覆盖）
         coDevice.stop();
-        // 重构后的stop方法可能不直接取消scheduledFuture，只验证stop方法被调用
-        
+        coDevice.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
         // 4. 释放资源
         coDevice.release();
         verify(mockModbusSource, times(1)).closeModbus();
@@ -573,7 +605,7 @@ public class CODeviceTest {
         
         // 执行并行读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 验证结果
@@ -615,7 +647,7 @@ public class CODeviceTest {
         
         // 执行并行读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 主测量段成功时仍提交更新（允许部分段失败）
@@ -650,7 +682,7 @@ public class CODeviceTest {
         
         // 执行并行读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 主测量段成功时仍提交更新（U16 段失败仅跳过该段）
@@ -754,7 +786,7 @@ public class CODeviceTest {
         
         // 执行并行读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future = coDevice.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 验证结果
@@ -771,7 +803,7 @@ public class CODeviceTest {
         
         // 再次执行并行读取
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future2 = (CompletableFuture<Boolean>) invokePrivateMethod(coDevice, "readAndUpdate");
+        CompletableFuture<Boolean> future2 = coDevice.readAndUpdate(mockModbusSource);
         result = future2.get(5, TimeUnit.SECONDS);
         
         // 验证结果

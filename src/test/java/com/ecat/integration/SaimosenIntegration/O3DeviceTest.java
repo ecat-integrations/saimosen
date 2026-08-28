@@ -17,6 +17,8 @@ import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import com.serotonin.modbus4j.msg.WriteRegistersResponse;
@@ -31,12 +33,12 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -50,8 +52,6 @@ public class O3DeviceTest {
     private O3Device o3Device;
     private AutoCloseable mockitoCloseable;
     
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<?> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
@@ -66,11 +66,11 @@ public class O3DeviceTest {
         
         // 先设置所有mock
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -124,6 +124,20 @@ public class O3DeviceTest {
             .build();
     }
 
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （o3Device::readAndUpdate），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
+     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
+     * 生产 start() 的节拍/接线由各 testStart_* 首轮正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        return ModbusPolling.on(o3Device, mockModbusSource)
+                .round(o3Device::readAndUpdate)
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
     // 反射辅助方法
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = findField(target.getClass(), fieldName);
@@ -149,6 +163,7 @@ public class O3DeviceTest {
         }
     }
     
+
     private Object invokePrivateMethod(Object target, String methodName, Object... args) throws Exception {
         Class<?>[] parameterTypes = new Class[args.length];
         for (int i = 0; i < args.length; i++) {
@@ -270,47 +285,57 @@ public class O3DeviceTest {
     
     @Test
     public void testStart_SchedulesReadTask() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-                .thenAnswer(v->mockScheduledFuture);
-                
-        // 执行start方法
-        o3Device.start();
-        
-        // 验证定时任务是否被调度
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
 
-        // 注意：O3Device使用SmsDeviceBase的getScheduledExecutor()方法，不直接存储scheduledFuture
-        // 所以这里只验证调度方法被调用即可
+        o3Device.start();
+
+        // 首轮立即发射（确定性同步：latch 等 round 真正读源，非定时猜测）
+        assertTrue("首轮（initialDelay=0）必须立即发起 float 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 40);
     }
     
     @Test
     public void testStop_CancelsScheduledTasks() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
-        o3Device.start();
-        
-        // 执行stop方法
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
         o3Device.stop();
-        
-        // 注意：新架构中stop方法没有实际实现，所以不会调用cancel
-        // 这个测试主要验证stop方法可以正常调用而不抛出异常
-        assertTrue("Stop method should complete without exception", true);
+        o3Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // sweep 已执行的直接证据：宿主进入已扫状态，再注册移除动作被拒（RemovalHost 契约）
+        try {
+            o3Device.onRemove(() -> { });
+            org.junit.Assert.fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (java.util.concurrent.RejectedExecutionException expected) {
+        }
     }
     
     @Test
     public void testRelease_CancelsReadFuture() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
-        o3Device.start();
-        
-        // 执行release方法
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
+        // disableEntry 同序：stop → sweep（移除动作停轮询）→ release（源释放）
+        o3Device.stop();
+        o3Device.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("release 前 stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         o3Device.release();
-        
-        // 注意：新架构中release方法调用super.release()，不会直接调用cancel
-        // 验证release方法可以正常调用而不抛出异常
-        assertTrue("Release method should complete without exception", true);
+        verify(mockModbusSource).closeModbus();
     }
     
     @Test
@@ -386,7 +411,7 @@ public class O3DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
         
         // 执行读取并等待异步操作完成
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         future.get(5, TimeUnit.SECONDS); // 等待异步操作完成
         
         // 验证分段读取被正确调用
@@ -426,11 +451,13 @@ public class O3DeviceTest {
         // 模拟分段读取中第一段失败
         CompletableFuture<ReadHoldingRegistersResponse> failedFuture = new CompletableFuture<>();
         failedFuture.completeExceptionally(new RuntimeException("Modbus communication error"));
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(failedFuture);
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(40)))
             .thenReturn(failedFuture);
         
         // 执行读取并等待异步操作完成
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS); // 等待异步操作完成
         
         // 验证返回值为false（表示异常处理）
@@ -444,11 +471,13 @@ public class O3DeviceTest {
         ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
         when(mockFloatResponse.getShortData()).thenReturn(null); // 返回null会触发异常
 
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0), eq(40)))
             .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
         
         // 执行读取并等待异步操作完成
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 验证返回值为false（表示异常处理）
@@ -503,22 +532,23 @@ public class O3DeviceTest {
     @Test
     public void testDeviceLifecycle() throws Exception {
         // 测试完整的设备生命周期
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-            .thenAnswer(v->mockScheduledFuture);
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
         
         // 1. 初始化
         o3Device.init();
         assertEquals(44, o3Device.getAttrs().size());
         
-        // 2. 启动
-        o3Device.start();
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
-        
-        // 3. 停止 - O3Device的stop方法没有实际实现，所以不会调用cancel
+        // 2. 启动（首轮 latch：确定性确认轮询已注册运行，非仅不抛异常）
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("start 后首轮轮询必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
+        // 3. 停止（lifecycle chokepoint：stop + sweep 执行 SDK 注册的移除动作停轮询）；
+        //    负向窗 600ms 覆盖 >10 个 50ms 周期（等价原「窗>5s 生产周期」的 cancel 因果覆盖）
         o3Device.stop();
-        // 注意：O3Device的stop方法没有实际实现，所以不会调用cancel
+        o3Device.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         
         // 4. 释放资源
         o3Device.release();
@@ -561,7 +591,7 @@ public class O3DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
         
         // 执行分段读取
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 验证结果 - 由于使用了ModbusTransactionStrategy，即使部分失败也可能返回true
@@ -601,7 +631,7 @@ public class O3DeviceTest {
         mockCalibrationSegmentReads();
         
         // 执行分段读取
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 主测量段成功时仍提交更新（允许部分段失败）
@@ -635,7 +665,7 @@ public class O3DeviceTest {
         mockCalibrationSegmentReads();
         
         // 执行分段读取
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 主测量段成功时仍提交更新（U16 段失败仅跳过该段）
@@ -843,7 +873,7 @@ public class O3DeviceTest {
         
         // 执行数据读取和解析
         @SuppressWarnings("unchecked")
-        CompletableFuture<Boolean> future = (CompletableFuture<Boolean>) invokePrivateMethod(o3Device, "readAndUpdate");
+        CompletableFuture<Boolean> future = o3Device.readAndUpdate(mockModbusSource);
         Boolean result = future.get(5, TimeUnit.SECONDS);
         
         // 验证读取成功

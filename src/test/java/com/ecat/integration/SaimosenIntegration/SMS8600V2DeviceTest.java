@@ -16,6 +16,7 @@ import com.ecat.core.State.TextAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.SerialIntegration.SerialIntegration;
+import com.ecat.integration.SerialIntegration.SerialPolling;
 import com.ecat.integration.SerialIntegration.SerialSource;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlerStrategy;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
@@ -32,15 +33,12 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -64,12 +62,6 @@ public class SMS8600V2DeviceTest {
 
     private SMS8600V2Device sms8600v2Device;
     private AutoCloseable mockitoCloseable;
-
-    @Mock
-    private ScheduledExecutorService mockExecutor;
-
-    @Mock
-    private ScheduledFuture<?> mockScheduledFuture;
 
     @Mock
     private SerialSource mockSerialSource;
@@ -111,11 +103,11 @@ public class SMS8600V2DeviceTest {
         setPrivateField(sms8600v2Device, "serialSource", mockSerialSource);
         setPrivateField(sms8600v2Device, "serialIntegration", mockSerialIntegration);
         when(mockSerialIntegration.register(any(), anyString())).thenReturn(mockSerialSource);
+        when(mockSerialSource.getPortName()).thenReturn("/dev/ttyUSB0");   // 域自持周期链链名（29 号 v2 S1）：mock 默认 null 须补
         when(mockSerialSource.getTimeout()).thenReturn(500);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -139,6 +131,7 @@ public class SMS8600V2DeviceTest {
 
     @After
     public void tearDown() throws Exception {
+        sms8600v2Device.stop();
         // 恢复 ResourceLoader 的设置，启用 i18n 资源加载
         ResourceLoader.setLoadI18nResources(true);
         mockitoCloseable.close();
@@ -308,72 +301,44 @@ public class SMS8600V2DeviceTest {
                    sms8600v2Device.getAttrs().get("calibration_cmd") instanceof SMS8600V2DeviceCommandAttribute);
     }
 
-    /**
-     * 测试设备启动时是否正确调度读取任务
-     * 
-     * 验证内容：
-     * 1. 定时任务是否被调度（scheduleWithFixedDelay 被调用 1 次）
-     * 2. 调度参数是否正确（初始延迟 0L，周期 5 秒）
-     * 3. ScheduledFuture 是否被正确设置到设备中
-     */
     @Test
     public void testStart_SchedulesReadTasks() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS)))
-                .thenAnswer(invocation -> mockScheduledFuture);
-
+        // 18 号迁移后句柄不经设备持有（SDK 内绑 onRemove）：以 round 入口探针证轮询已注册运行
+        CountDownLatch firstRound = pollingRoundProbe(1);
         sms8600v2Device.start();
-
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-                any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
-
-        ScheduledFuture<?> actualFuture = (ScheduledFuture<?>) getPrivateField(sms8600v2Device, "scheduledFuture");
-        assertEquals("ScheduledFuture应该被正确设置", mockScheduledFuture, actualFuture);
+        assertTrue("start 后首轮轮询必须发起（探针=executePolling 首访 tryAcquire）",
+                firstRound.await(8, TimeUnit.SECONDS));
     }
 
-    /**
-     * 测试设备停止时是否正确取消定时任务
-     * 
-     * 测试流程：
-     * 1. 启动设备以创建定时任务
-     * 2. 调用 stop() 方法
-     * 
-     * 验证内容：
-     * - scheduledFuture.cancel(true) 是否被调用
-     */
     @Test
     public void testStop_CancelsScheduledTasks() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
-        sms8600v2Device.start();
+        CountDownLatch firstRound = pollingRoundProbe(1);
+        startFastPolling();
+        assertTrue("首轮必须发起", firstRound.await(8, TimeUnit.SECONDS));
 
         sms8600v2Device.stop();
+        sms8600v2Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
+        // 负向探针须换新 latch（旧 latch 已计数永真）：新探针只计其后再发起的 round；
+        // 600ms 窗覆盖 >10 个 50ms 周期（等价「窗 > 生产周期」覆盖强度。此前本断言挂在
+        // 生产 5s 节拍上而窗仅 600ms——cancel 失效时下轮最早 +5s 才现形，断言恒真空转，
+        // 已改测试自建快节拍与生产节拍解耦）
+        CountDownLatch nextRound = pollingRoundProbe(1);
 
-        verify(mockScheduledFuture, times(1)).cancel(true);
+        assertFalse("stop+sweep 后不得再发起下一轮", nextRound.await(600, TimeUnit.MILLISECONDS));
     }
 
-    /**
-     * 测试设备释放时是否关闭串口并取消定时任务
-     * 
-     * 测试流程：
-     * 1. 启动设备
-     * 2. 模拟串口端口处于打开状态
-     * 3. 调用 release() 方法
-     * 
-     * 验证内容：
-     * 1. scheduledFuture.cancel(true) 是否被调用
-     * 2. serialSource.closePort() 是否被调用
-     */
     @Test
     public void testRelease_ClosesSerialPortAndCancelsTasks() throws Exception {
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocation -> mockScheduledFuture);
         when(mockSerialSource.isPortOpen()).thenReturn(true);
-
-        sms8600v2Device.start();
+        CountDownLatch firstRound = pollingRoundProbe(1);
+        startFastPolling();
+        assertTrue("首轮必须发起", firstRound.await(8, TimeUnit.SECONDS));
 
         sms8600v2Device.release();
+        sms8600v2Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.onRelease 先 sweep 后 release）
+        CountDownLatch nextRound = pollingRoundProbe(1);
 
-        verify(mockScheduledFuture, times(1)).cancel(true);
+        assertFalse("release+sweep 后不得再发起下一轮", nextRound.await(600, TimeUnit.MILLISECONDS));
         verify(mockSerialSource, times(1)).closePort();
     }
 
@@ -1188,5 +1153,31 @@ public class SMS8600V2DeviceTest {
         } finally {
             ResourceLoader.setLoadI18nResources(true);
         }
+    }
+    // ==================== 轮询观测垫片（18 号迁移：句柄字段已删，经 round 入口探针观测） ====================
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式，serial 侧形态）：
+     * 节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗 600ms 覆盖 >10 个周期
+     * （cancel 失效形态下下一轮 51ms 内必现形，等价「窗 > 生产周期」覆盖强度）。
+     * round 体用占位：本类探针 tryAcquire 恒返 null（锁忙跳过轮零业务副作用），round
+     * 体从不执行——负向测试断言的是轮询生命周期，与 round 业务体无关。生产 start()
+     * 的接线由 testStart_SchedulesReadTasks 走真实 start() 正向覆盖。
+     */
+    private void startFastPolling() {
+        SerialPolling.on(sms8600v2Device, mockSerialSource)
+                .every(50, TimeUnit.MILLISECONDS)
+                .round(source -> CompletableFuture.completedFuture(true))
+                .start();
+    }
+
+    /** round 入口探针：executePolling 每轮首访 tryAcquire——返回 null=锁忙跳过（零业务副作用）。 */
+    private CountDownLatch pollingRoundProbe(int rounds) {
+        CountDownLatch latch = new CountDownLatch(rounds);
+        when(mockSerialSource.tryAcquire()).thenAnswer(inv -> {
+            latch.countDown();
+            return null;
+        });
+        return latch;
     }
 }

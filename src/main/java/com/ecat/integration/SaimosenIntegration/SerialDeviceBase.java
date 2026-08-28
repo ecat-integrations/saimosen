@@ -10,9 +10,7 @@ import com.ecat.integration.SerialIntegration.SerialIntegration;
 import com.ecat.integration.SerialIntegration.SerialSource;
 import com.fazecast.jSerialComm.SerialPort;
 
-import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
 
 import static org.apache.commons.lang3.math.NumberUtils.toInt;
 
@@ -26,7 +24,6 @@ public abstract class SerialDeviceBase extends DeviceBase {
     // protected SerialPort serialPort;
     protected SerialSource serialSource;
     protected SerialInfo serialInfo;
-    protected ScheduledFuture<?> scheduledFuture;
 
     public SerialDeviceBase(ConfigEntry entry) {
         super(entry);
@@ -86,9 +83,8 @@ public abstract class SerialDeviceBase extends DeviceBase {
     }
     @Override
     public void stop() {
-        if (scheduledFuture != null) {
-            scheduledFuture.cancel(true);
-        }
+        // 轮询收尾不经设备 stop：SerialPolling 内部 host.onRemove 绑定，
+        // 框架 cancelManagedTasks LIFO sweep 接管（18 号设计 §3.3）
     }
     @Override
     public void release() {

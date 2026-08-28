@@ -2,12 +2,10 @@ package com.ecat.integration.SaimosenIntegration;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
-import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.AttrState;
@@ -28,7 +26,8 @@ import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
 import com.ecat.core.Utils.DynamicConfig.ConfigItem;
 import com.ecat.core.Utils.DynamicConfig.ConfigItemBuilder;
 import com.ecat.core.State.UnitInfo;
-import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
+import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Tools;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
@@ -56,17 +55,27 @@ public class QCDevice extends SmsDeviceBase {
     
     // 转换器
     BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
-    
-    private ScheduledFuture<?> readFuture;
+
     protected Map<Integer, AttributeInfo> attributeMap = new HashMap<>();
     protected Map<Integer, List<AttributeInfo>> duplicateMap = new HashMap<>();
+
+    /**
+     * 块二前节拍（毫秒，默认 1000）：设备性能要求——连续读寄存器块之间须留隙，盲发
+     * 第二笔会锁忙静默缺失（见 readRegisters 注释）。包可见，供同包测试注入小值：
+     * 单测只验证链路语义（三块全读 + finishReadCycle 发布），节拍本身不是被测对象，
+     * 生产默认不变。
+     */
+    long secondBlockGapMs = 1000L;
+
+    /**
+     * 块三前节拍（毫秒，默认 500）：设备性能要求，同 {@link #secondBlockGapMs} 语义
+     * （V2 智能稳压电源块；原版无第三块不消费）。
+     */
+    long thirdBlockGapMs = 500L;
 
     private ConfigDefinition configDefinition;
     private DeviceConfig deviceConfig;
 
-    private ScheduledFuture<?> testControlFuture;
-    private boolean isDebug = false; // 是否开启调试模式
-    private int testCount = 0;
 
     public QCDevice(ConfigEntry entry) {
         super(entry);
@@ -88,28 +97,22 @@ public class QCDevice extends SmsDeviceBase {
         // 配置派生属性在 id 解析后（start 时机）赋值，确保 state.deviceId 为持久化 id
         initConfigDerivedAttributeValues();
 
-        // 每10秒定时读取一次Modbus数据
-        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readRegisters, 0, 5, TimeUnit.SECONDS);
-
-        if (isDebug) {
-            testControlFuture = getScheduledExecutor().scheduleWithFixedDelay(this::controlMode, 60, 60, TimeUnit.SECONDS);
-        }
-        
+        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管。
+        // 两步构建：round 链内块间 1s/500ms 节拍经 polling.delay(ms) 糖表达（收编本地
+        // getScheduledExecutor delay() 助手；同 SMS8600V2Device 的 serial 侧迁移形态）
+        final ModbusPolling polling = ModbusPolling.on(this, modbusSource);
+        polling.round(source -> readRegisters(polling, source))
+                .every(5, TimeUnit.SECONDS)
+                .start();
     }
 
     @Override
     public void stop() {
-        if (readFuture != null)
-            readFuture.cancel(true);
-        if (testControlFuture != null) testControlFuture.cancel(true);
+        // 轮询生命周期已由 ModbusPolling SDK 内绑 RemovalHost（设备移除 sweep）收尾
     }
 
     @Override
     public void release() {
-        if (readFuture != null) {
-            readFuture.cancel(true);
-        }
-        if (testControlFuture != null) testControlFuture.cancel(true);
         super.release();
     }
 
@@ -614,84 +617,87 @@ public class QCDevice extends SmsDeviceBase {
     }
 
     /**
-     * 定时读取Modbus寄存器数据
+     * 定时读取Modbus寄存器数据（SDK 单事务 round：三块读在同源锁内 FIFO 串行，
+     * 块间 1s/500ms 节拍保留——设备性能要求。旧形态为三笔独立事务在 1s 定时到点
+     * 盲发第二笔，块一未完成时第二笔 tryAcquire 必锁忙静默缺失（wit-motion 同型缺陷），
+     * 合并后天然串行不再互踩）
      */
-    protected void readRegisters() {
-        // 第一个独立请求：读取第一个地址块(前110个参数)
-        ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-            return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
-                    .thenApply(firstResponse -> {
-                        try {
-                            // 处理第一块数据
-                            short[] firstBlockRegisters = firstResponse.getShortData();
-                            log.debug("QCDevice 第一块数据: {} 长度: {}", Arrays.toString(firstBlockRegisters), firstBlockRegisters.length);
-                            parseBlockData(firstBlockRegisters, FIRST_BLOCK_START);
-                            return true;
-                        } catch (Exception e) {
-                            log.error("QCDevice 第一块数据解析失败: " + e.getMessage());
-                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                            publicAttrsState();
-                            return false;
-                        }
-                    });
-        });
-
-        // 延迟1秒后执行第二个独立请求：读取第二个地址块
-        int secondBlockCount = getSecondBlockRegisterCount();
-        delay(1000, TimeUnit.MILLISECONDS).thenCompose(z -> {
-            return ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-                return source.readHoldingRegisters(SECOND_BLOCK_START, secondBlockCount)
-                        .thenApply(secondResponse -> {
-                            try {
-                                // 处理第二块数据
-                                short[] secondBlockRegisters = secondResponse.getShortData();
-                                log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
-                                        Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
-                                parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-                                return true;
-                            } catch (Exception e) {
-                                log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
-                                getAttrs().values()
-                                        .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                publicAttrsState();
-                                return false;
-                            }
-                        });
-            });
-        }).thenCompose(ok -> {
-            if (!Boolean.TRUE.equals(ok)) {
-                return CompletableFuture.completedFuture(false);
-            }
-            int thirdStart = getThirdBlockStart();
-            int thirdCount = getThirdBlockRegisterCount();
-            if (thirdStart < 0 || thirdCount <= 0) {
-                // 原版：第二块完成后更新计算属性并发布
-                finishReadCycle();
-                return CompletableFuture.completedFuture(true);
-            }
-            // V2：再延迟后读取第三块（智能稳压电源寄存器）
-            return delay(500, TimeUnit.MILLISECONDS).thenCompose(z2 ->
-                ModbusTransactionStrategy.executeWithLambda(modbusSource, source ->
-                    source.readHoldingRegisters(thirdStart, thirdCount)
-                        .thenApply(thirdResponse -> {
-                            try {
-                                short[] thirdBlockRegisters = thirdResponse.getShortData();
-                                log.debug("{} 第三块数据: {} 长度: {}", getClass().getSimpleName(),
-                                        Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
-                                parseBlockData(thirdBlockRegisters, thirdStart);
-                                finishReadCycle();
-                                return true;
-                            } catch (Exception e) {
-                                log.error("{} 第三块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
-                                getAttrs().values()
-                                        .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                publicAttrsState();
-                                return false;
-                            }
-                        })
-                )
-            );
-        });
+    protected CompletableFuture<Boolean> readRegisters(ModbusPolling polling, ModbusSource source) {
+        // 第一块：前 110 个参数（失败不阻断后续块——旧形态块一为 fire-and-forget，异常被丢弃）
+        return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
+                .thenApply(firstResponse -> {
+                    try {
+                        // 处理第一块数据
+                        short[] firstBlockRegisters = firstResponse.getShortData();
+                        log.debug("QCDevice 第一块数据: {} 长度: {}", Arrays.toString(firstBlockRegisters), firstBlockRegisters.length);
+                        parseBlockData(firstBlockRegisters, FIRST_BLOCK_START);
+                        return true;
+                    } catch (Exception e) {
+                        log.error("QCDevice 第一块数据解析失败: " + e.getMessage());
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return false;
+                    }
+                })
+                .handle((ok, ex) -> {
+                    if (ex != null) {
+                        log.error("QCDevice 第一块数据读取失败，继续后续块: " + ex.getMessage());
+                    }
+                    return true;
+                })
+                // 块间 1s 节拍后读第二块（secondBlockGapMs：设备性能要求默认 1000，测试可注入）
+                .thenCompose(v -> {
+                    int secondBlockCount = getSecondBlockRegisterCount();
+                    return polling.delay(secondBlockGapMs).thenCompose(z ->
+                            source.readHoldingRegisters(SECOND_BLOCK_START, secondBlockCount)
+                                    .thenApply(secondResponse -> {
+                                        try {
+                                            // 处理第二块数据
+                                            short[] secondBlockRegisters = secondResponse.getShortData();
+                                            log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
+                                                    Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
+                                            parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
+                                            return true;
+                                        } catch (Exception e) {
+                                            log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
+                                            getAttrs().values()
+                                                    .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                                            publicAttrsState();
+                                            return false;
+                                        }
+                                    }));
+                })
+                .thenCompose(ok -> {
+                    if (!Boolean.TRUE.equals(ok)) {
+                        return CompletableFuture.completedFuture(false);
+                    }
+                    int thirdStart = getThirdBlockStart();
+                    int thirdCount = getThirdBlockRegisterCount();
+                    if (thirdStart < 0 || thirdCount <= 0) {
+                        // 原版：第二块完成后更新计算属性并发布
+                        finishReadCycle();
+                        return CompletableFuture.completedFuture(true);
+                    }
+                    // V2：再延迟后读取第三块（智能稳压电源寄存器；thirdBlockGapMs 默认 500，测试可注入）
+                    return polling.delay(thirdBlockGapMs).thenCompose(z2 ->
+                            source.readHoldingRegisters(thirdStart, thirdCount)
+                                    .thenApply(thirdResponse -> {
+                                        try {
+                                            short[] thirdBlockRegisters = thirdResponse.getShortData();
+                                            log.debug("{} 第三块数据: {} 长度: {}", getClass().getSimpleName(),
+                                                    Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
+                                            parseBlockData(thirdBlockRegisters, thirdStart);
+                                            finishReadCycle();
+                                            return true;
+                                        } catch (Exception e) {
+                                            log.error("{} 第三块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
+                                            getAttrs().values()
+                                                    .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                                            publicAttrsState();
+                                            return false;
+                                        }
+                                    }));
+                });
     }
 
     /** 第二/三块读取完成后：计算派生属性、置 NORMAL 并发布 */
@@ -699,17 +705,6 @@ public class QCDevice extends SmsDeviceBase {
         updateCalulateAttr();
         getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
         publicAttrsState();
-    }
-    /**
-     * 创建异步延迟Future，用于在命令之间添加延迟以适应设备性能
-     * @param delay 延迟时间
-     * @param unit 时间单位
-     * @return CompletableFuture<Void>
-     */
-    private CompletableFuture<Void> delay(long delay, TimeUnit unit) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        getScheduledExecutor().schedule(() -> future.complete(null), delay, unit);
-        return future;
     }
 
     /**
@@ -882,35 +877,6 @@ public class QCDevice extends SmsDeviceBase {
         U16X10,
         U16X100,
         FLOAT
-    }
-
-    private void controlMode() {
-
-        try {
-            // 发送命令
-            Collection<DeviceBase> device = ((SaimosenIntegration) getIntegration()).getAllDevices();
-            for (DeviceBase dev : device) {
-                if (dev instanceof QCDevice) {
-                    if (testCount++ % 2 == 0) {
-                        // start calibration
-                        ((ModbusShortAttribute) dev.getAttrs().get("calibration_valve_so2"))
-                                .setDisplayValue("1");
-                        ((ModbusShortAttribute) dev.getAttrs().get("zero_gas_relay"))
-                                .setDisplayValue("1");
-
-                    } else {
-                        //stop
-                        ((ModbusShortAttribute) dev.getAttrs().get("calibration_valve_so2"))
-                                .setDisplayValue("0");
-                        ((ModbusShortAttribute) dev.getAttrs().get("zero_gas_relay"))
-                                .setDisplayValue("0");
-                    }
-                }
-            }
-            // commandAttr.sendCommand(nextCommand).get();
-        } catch (Exception e) {
-            log.error("Failed to send command: " + e.getMessage());
-        }
     }
 
     /**

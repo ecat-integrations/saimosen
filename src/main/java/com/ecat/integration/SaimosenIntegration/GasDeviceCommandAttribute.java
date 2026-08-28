@@ -276,8 +276,6 @@ public class GasDeviceCommandAttribute extends StringCommandAttribute {
         return 0.0; // 默认值
     }
 
-
-
     /**
      * 获取当前气体类型
      * @return 气体类型

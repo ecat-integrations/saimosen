@@ -2,7 +2,6 @@ package com.ecat.integration.SaimosenIntegration;
 
 import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.Device.DeviceStatus;
@@ -55,7 +54,6 @@ public abstract class SmsDeviceBase extends DeviceBase {
     protected ModbusInfo modbusInfo;
     protected String modbusProtocol;
 
-    protected ScheduledFuture<?> readFuture;
 
     /**
      * 从 ConfigEntry 构建设备（推荐）

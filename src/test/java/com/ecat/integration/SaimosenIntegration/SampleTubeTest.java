@@ -3,17 +3,16 @@ package com.ecat.integration.SaimosenIntegration;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.lang.reflect.Field;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -25,9 +24,13 @@ import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.Task.TaskManager;
+import com.ecat.core.State.StateManager;
+import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 import com.serotonin.modbus4j.msg.WriteRegisterResponse;
 
@@ -49,9 +52,6 @@ public class SampleTubeTest {
     private ModbusSource mockModbusSource;
 
     @Mock
-    private ScheduledExecutorService mockExecutor;
-
-    @Mock
     private ReadHoldingRegistersResponse mockReadResponse;
 
     @Mock
@@ -60,6 +60,57 @@ public class SampleTubeTest {
     private BusRegistry mockBusRegistry;
 
     private SampleTube sampleTube;
+
+
+    /**
+     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
+     * （sampleTube::readRegisters），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
+     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
+     * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPolling 正向覆盖。
+     */
+    private PollingHandle startFastPolling() {
+        return ModbusPolling.on(sampleTube, mockModbusSource)
+                .round(sampleTube::readRegisters)
+                .every(50, TimeUnit.MILLISECONDS)
+                .start();
+    }
+
+    @Test
+    public void testStart_SchedulesProductionPolling() throws Exception {
+        // 生产 start() 接线回归（快节拍改造后 startAndStop/release 测试不再走 start()，
+        // 接线覆盖归本测试）：首轮 latch 等 round 真正读源 + DEFAULT 块参数 verify；
+        // 生产节拍 5s，测试 ms 级收尾。setup 同 testStartAndStop（modbusSource 显式注入，
+        // 与类序解耦）
+        when(mockCore.getIntegrationRegistry()).thenReturn(mock(IntegrationRegistry.class));
+        when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
+        when(mockCore.getTaskManager()).thenReturn(mock(TaskManager.class));
+        when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+
+        sampleTube.load(mockCore);
+        sampleTube.init();
+        setPrivateField(sampleTube, "modbusSource", mockModbusSource);
+        when(mockCore.getStateManager()).thenReturn(mock(StateManager.class));
+        sampleTube.markReady();
+
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+
+        sampleTube.start();
+        assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 11);
+
+        // 生产轮询生命周期收尾（不 sweep 会泄漏至类外，bugs/bug-record-20260828-224500）
+        sampleTube.stop();
+        sampleTube.cancelManagedTasks();
+    }
 
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
         Field field = findField(target.getClass(), fieldName);
@@ -77,6 +128,11 @@ public class SampleTubeTest {
             }
             return findField(superClass, fieldName);
         }
+    }
+
+    @After
+    public void tearDown() {
+        sampleTube.stop();
     }
 
     @Before
@@ -148,6 +204,7 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -165,27 +222,53 @@ public class SampleTubeTest {
     }
 
     @Test
-    public void testStartAndStop() {
+    public void testStartAndStop() throws Exception {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockCore.getTaskManager()).thenReturn(mock(TaskManager.class));
-        when(mockCore.getTaskManager().getExecutorService()).thenReturn(mockExecutor);
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-                .thenReturn(mock(java.util.concurrent.ScheduledFuture.class));
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
+        // 直接设置modbusSource（同 testRelease 形态）：init() 的 register 走静态
+        // modbusIntegration（前序测试类遗留的已关 mock），轮询会拿到 null 源——显式注入
+        // 使本测试与类序解耦，round 确定打到本测试的 mock 上
+        setPrivateField(sampleTube, "modbusSource", mockModbusSource);
+        // markReady 对齐生产时序（未就绪撞 publicAttrsState 门禁，parse 被兜成 MALFUNCTION）
+        when(mockCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
+        sampleTube.markReady();
 
-        // 测试启动
-        sampleTube.start();
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.SECONDS));
+        // 测试启动：首轮 latch + 块参数 verify（latch 等 round 真正读源，非定时猜测）
+        CountDownLatch firstRead = new CountDownLatch(1);
+        ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
+        when(mockReadResp.getShortData()).thenReturn(new short[0]);
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    firstRead.countDown();
+                    return CompletableFuture.completedFuture(mockReadResp);
+                });
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
+                firstRead.await(5, TimeUnit.SECONDS));
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 11);
 
-        // 测试停止
+        // 测试停止（lifecycle chokepoint：stop + sweep 执行移除动作）；
+        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
         sampleTube.stop();
-        // 注意：这里无法直接验证cancel调用，因为ScheduledFuture是mock的
+        sampleTube.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+
+        // 已扫状态=再注册被拒（RemovalHost 契约）
+        try {
+            sampleTube.onRemove(() -> { });
+            org.junit.Assert.fail("sweep 后宿主必须拒绝新移除动作注册");
+        } catch (java.util.concurrent.RejectedExecutionException expected) {
+        }
     }
 
     @Test
@@ -195,6 +278,7 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         // 模拟读取响应（根据新协议，共11个寄存器）
         short[] mockData = new short[11];
@@ -214,6 +298,7 @@ public class SampleTubeTest {
         when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockReadResponse));
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -222,24 +307,17 @@ public class SampleTubeTest {
         sampleTube.load(mockCore);
         sampleTube.init();
 
-        // 直接设置modbusSource
+        // 直调 round 须就绪（publicAttrsState 门禁；旧反射+丢 CF 形态把门禁 ISE 静默吞掉，
+        // 直调取结果后显形——补 StateManager 桩 + markReady 对齐生产时序）
+        when(mockCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
+        sampleTube.markReady();
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
 
-        // 执行读取操作（通过反射调用私有方法）
-        try {
-            java.lang.reflect.Method readMethod = SampleTube.class.getDeclaredMethod("readRegisters");
-            readMethod.setAccessible(true);
-            readMethod.invoke(sampleTube);
+        // 直调 round（同包可见）：get 有界护栏即回，零 sleep
+        sampleTube.readRegisters(mockModbusSource).get(2, TimeUnit.SECONDS);
 
-            // 等待异步操作完成
-            Thread.sleep(100);
-
-            // 验证读取调用（读取11个寄存器）
-            verify(mockModbusSource, times(1)).readHoldingRegisters(0, 11);
-
-        } catch (Exception e) {
-            fail("反射调用失败: " + e.getMessage());
-        }
+        // 验证读取调用（读取11个寄存器）
+        verify(mockModbusSource, times(1)).readHoldingRegisters(0, 11);
     }
 
     @Test
@@ -248,9 +326,16 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        // 确定性同步（替代 sleep）：写事务体在调用线程内联执行（executeHeld 内
+        // lambda.apply 直发），latch 挂 writeRegister 入口——验证「写已发生」而非睡后猜测
+        CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
-                .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
+                .thenAnswer(inv -> {
+                    writeDone.countDown();
+                    return CompletableFuture.completedFuture(mockWriteResponse);
+                });
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -265,8 +350,7 @@ public class SampleTubeTest {
         float targetTemp = 45.5f;
         sampleTube.setHeatingTubeTargetTemp(targetTemp);
 
-        // 等待异步操作完成
-        Thread.sleep(100);
+        assertTrue("写入事务必须发起", writeDone.await(5, TimeUnit.SECONDS));
 
         // 验证写入调用（45.5 * 10 = 455，写入地址10）
         verify(mockModbusSource, times(1)).writeRegister(10, 455);
@@ -278,9 +362,15 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        // 确定性同步（替代 sleep）：latch 挂 writeRegister 入口，验证「写已发生」
+        CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
-                .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
+                .thenAnswer(inv -> {
+                    writeDone.countDown();
+                    return CompletableFuture.completedFuture(mockWriteResponse);
+                });
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -292,8 +382,7 @@ public class SampleTubeTest {
         float actualTemp = 40.0f;
         sampleTube.setHeatingTubeActualTemp(actualTemp);
 
-        // 等待异步操作完成
-        Thread.sleep(100);
+        assertTrue("写入事务必须发起", writeDone.await(5, TimeUnit.SECONDS));
 
         // 验证写入调用（40.0 * 10 = 400，写入地址6）
         verify(mockModbusSource, times(1)).writeRegister(6, 400);
@@ -305,9 +394,15 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        // 确定性同步（替代 sleep）：latch 挂 writeRegister 入口，验证「写已发生」
+        CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
-                .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
+                .thenAnswer(inv -> {
+                    writeDone.countDown();
+                    return CompletableFuture.completedFuture(mockWriteResponse);
+                });
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -317,12 +412,12 @@ public class SampleTubeTest {
 
         // 测试设置设备地址
         sampleTube.setDeviceAddress(5);
-        Thread.sleep(100);
+        assertTrue("写入事务必须发起", writeDone.await(5, TimeUnit.SECONDS));
         verify(mockModbusSource, times(1)).writeRegister(4, 5);
 
-        // 测试设置无效地址（超出范围）
+        // 测试设置无效地址（超出范围）：setter 入口直接拒绝（写事务在调用线程内联，
+        // 拒绝路径零写入——无需等待即可断言总写入数不变）
         sampleTube.setDeviceAddress(256);
-        Thread.sleep(100);
         // 无效地址不应该写入，仍然只有1次调用
         verify(mockModbusSource, times(1)).writeRegister(anyInt(), anyInt());
     }
@@ -333,9 +428,15 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        // 确定性同步（替代 sleep）：latch 挂 writeRegister 入口，验证「写已发生」
+        CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
-                .thenReturn(CompletableFuture.completedFuture(mockWriteResponse));
+                .thenAnswer(inv -> {
+                    writeDone.countDown();
+                    return CompletableFuture.completedFuture(mockWriteResponse);
+                });
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -346,8 +447,7 @@ public class SampleTubeTest {
         // 测试设置校准状态
         sampleTube.setCalibrationStatus(0);
 
-        // 等待异步操作完成
-        Thread.sleep(100);
+        assertTrue("写入事务必须发起", writeDone.await(5, TimeUnit.SECONDS));
 
         // 验证写入调用（写入地址2，值为0）
         verify(mockModbusSource, times(1)).writeRegister(2, 0);
@@ -360,11 +460,9 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockCore.getTaskManager()).thenReturn(mock(TaskManager.class));
-        when(mockCore.getTaskManager().getExecutorService()).thenReturn(mockExecutor);
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class)))
-                .thenReturn(mock(java.util.concurrent.ScheduledFuture.class));
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -372,7 +470,19 @@ public class SampleTubeTest {
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
 
-        sampleTube.start();
+        // markReady 对齐生产时序（未就绪撞 publicAttrsState 门禁，parse 被兜成 MALFUNCTION）
+        when(mockCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
+        sampleTube.markReady();
+
+        RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
+        startFastPolling();
+        assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
+
+        // disableEntry 同序：stop → sweep（移除动作停轮询）→ release（源释放）
+        sampleTube.stop();
+        sampleTube.cancelManagedTasks();
+        probe.armStrayDetector();
+        assertFalse("release 前 stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         sampleTube.release();
 
         // 验证资源释放
@@ -386,6 +496,7 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -425,6 +536,7 @@ public class SampleTubeTest {
                     throw new RuntimeException("通信失败");
                 }));
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -432,20 +544,15 @@ public class SampleTubeTest {
         // 直接设置modbusSource
         setPrivateField(sampleTube, "modbusSource", mockModbusSource);
 
-        // 执行读取操作（通过反射调用私有方法）
+        // 直调 round（同包可见）：传输失败（读 future 异常完成）原样异常完成——旧反射+丢 CF
+        // 形态把它静默吞掉，直调取结果后显形为 ExecutionException（SDK 生产路径归类 FAILED
+        // 统一 error 日志、轮询不注销；解析失败才走 thenApply 内 catch → 业务 false）
         try {
-            java.lang.reflect.Method readMethod = SampleTube.class.getDeclaredMethod("readRegisters");
-            readMethod.setAccessible(true);
-            readMethod.invoke(sampleTube);
-
-            // 等待异步操作完成
-            Thread.sleep(100);
-
-            // 验证错误处理
-            // 注意：由于异步执行，这里主要验证方法调用不会抛出异常
-
-        } catch (Exception e) {
-            fail("错误处理测试失败: " + e.getMessage());
+            sampleTube.readRegisters(mockModbusSource).get(2, TimeUnit.SECONDS);
+            org.junit.Assert.fail("传输失败轮必须异常完成");
+        } catch (java.util.concurrent.ExecutionException expected) {
+            org.junit.Assert.assertTrue("根因应为模拟的通信失败",
+                    expected.getCause() instanceof RuntimeException);
         }
     }
 
@@ -462,6 +569,7 @@ public class SampleTubeTest {
             when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
             when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
             when(mockModbusSource.acquire()).thenReturn("testKey");
+            when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
             sampleTube.load(mockCore);
             sampleTube.init();
@@ -499,6 +607,7 @@ public class SampleTubeTest {
             when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
             when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
             when(mockModbusSource.acquire()).thenReturn("testKey");
+            when(mockModbusSource.tryAcquire()).thenReturn("testKey");
 
             sampleTube.load(mockCore);
             sampleTube.init();

@@ -19,6 +19,7 @@ import com.ecat.core.State.Unit.TemperatureUnit;
 import com.ecat.core.State.Unit.VoltageUnit;
 import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
 import com.ecat.integration.ModbusIntegration.Tools;
 
@@ -84,18 +85,22 @@ public class SO2Device extends SmsDeviceBase {
 
     @Override
     public void start() {
-        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readAndUpdate, 0, 5, TimeUnit.SECONDS);
+        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK
+        // 托管，设备类只提供 round（多段并行读在单事务内 FIFO 单飞）
+        ModbusPolling.on(this, modbusSource)
+                .round(this::readAndUpdate)
+                .every(5, TimeUnit.SECONDS)
+                .start();
     }
 
     @Override
     public void stop() {
-        if (readFuture != null) {
-            readFuture.cancel(true);
-        }
+        // 轮询生命周期已由 ModbusPolling SDK 内绑 RemovalHost（设备移除 sweep）收尾
     }
 
     @Override
     public void release() {
+        stop();
         super.release();
     }
     
@@ -288,93 +293,88 @@ public class SO2Device extends SmsDeviceBase {
         log.info("SO2Device " + getId() + " initialized with " + getAttrs().size() + " attributes");
     }
 
-    private CompletableFuture<Boolean> readAndUpdate() {
-        return ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
-            // 并行读取所有数据段，每个段独立处理失败情况
-            CompletableFuture<SegmentData> floatDataFuture = readSegment(source, "float_params")
-                    .thenApply(this::parseFloatData)
-                    .handle((result, throwable) -> {
-                        if (throwable != null) {
-                            log.warn("SO2Device " + getId() + " - Float data segment failed: " + throwable.getMessage());
-                            return null; // 返回null表示失败
-                        }
-                        return result;
-                    });
-            
-            CompletableFuture<SegmentData> u16DataFuture = readSegment(source, "u16_params")
-                    .thenApply(this::parseU16Data)
-                    .handle((result, throwable) -> {
-                        if (throwable != null) {
-                            log.warn("SO2Device " + getId() + " - U16 data segment failed: " + throwable.getMessage());
-                            return null; // 返回null表示失败
-                        }
-                        return result;
-                    });
-            
-            CompletableFuture<SegmentData> spanCalibConcentrationFuture = readSegment(source, "span_calibration_start")
-                    .thenApply(this::parseSpanCalibrationConcentration)
-                    .handle((result, throwable) -> {
-                        if (throwable != null) {
-                            log.warn("SO2Device " + getId() + " - Span calibration data segment failed: " + throwable.getMessage());
-                            return null; // 返回null表示失败
-                        }
-                        return result;
-                    });
-            
-            CompletableFuture<SegmentData> instrumentCalibStatusFuture = readSegment(source, "calibration_status")
-                    .thenApply(this::parseInstrumentCalibrationStatus)
-                    .handle((result, throwable) -> {
-                        if (throwable != null) {
-                            log.warn("SO2Device " + getId() + " - Calibration status data segment failed: " + throwable.getMessage());
-                            return null; // 返回null表示失败
-                        }
-                        return result;
-                    });
-            
-            return CompletableFuture.allOf(floatDataFuture, u16DataFuture, spanCalibConcentrationFuture, instrumentCalibStatusFuture)
-                    .thenApply(v -> {
-                        try {
-                            // 获取所有数据，允许部分为null
-                            SegmentData floatData = floatDataFuture.join();
-                            SegmentData u16Data = u16DataFuture.join();
-                            SegmentData spanCalibConcentration = spanCalibConcentrationFuture.join();
-                            SegmentData instrumentCalibStatus = instrumentCalibStatusFuture.join();
-                            
-                            // 统计成功的数据段
-                            int successCount = 0;
-                            int totalCount = 4;
-                            
-                            if (floatData != null) successCount++;
-                            if (u16Data != null) successCount++;
-                            if (spanCalibConcentration != null) successCount++;
-                            if (instrumentCalibStatus != null) successCount++;
-                            
-                            if (floatData == null) {
-                                log.warn("SO2Device " + getId()
-                                        + " - Primary measurement segment failed, skip attribute update (online detection relies on lastUpdated)");
-                                return false;
-                            }
-
-                            if (instrumentCalibStatus != null) {
-                                processCalibrationStatus(instrumentCalibStatus);
-                            }
-                            updateAllAttributes(floatData, u16Data, spanCalibConcentration, instrumentCalibStatus);
-                            commitPollState();
-
-                            if (successCount == totalCount) {
-                            } else {
-                                log.warn("SO2Device " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
-                            }
-                            return true;
-                        } catch (Exception e) {
-                            log.error("SO2Device data processing failed: " + e.getMessage());
+    CompletableFuture<Boolean> readAndUpdate(ModbusSource source) {
+        // 并行读取所有数据段，每个段独立处理失败情况
+        CompletableFuture<SegmentData> floatDataFuture = readSegment(source, "float_params")
+                .thenApply(this::parseFloatData)
+                .handle((result, throwable) -> {
+                    if (throwable != null) {
+                        log.warn("SO2Device " + getId() + " - Float data segment failed: " + throwable.getMessage());
+                        return null; // 返回null表示失败
+                    }
+                    return result;
+                });
+        
+        CompletableFuture<SegmentData> u16DataFuture = readSegment(source, "u16_params")
+                .thenApply(this::parseU16Data)
+                .handle((result, throwable) -> {
+                    if (throwable != null) {
+                        log.warn("SO2Device " + getId() + " - U16 data segment failed: " + throwable.getMessage());
+                        return null; // 返回null表示失败
+                    }
+                    return result;
+                });
+        
+        CompletableFuture<SegmentData> spanCalibConcentrationFuture = readSegment(source, "span_calibration_start")
+                .thenApply(this::parseSpanCalibrationConcentration)
+                .handle((result, throwable) -> {
+                    if (throwable != null) {
+                        log.warn("SO2Device " + getId() + " - Span calibration data segment failed: " + throwable.getMessage());
+                        return null; // 返回null表示失败
+                    }
+                    return result;
+                });
+        
+        CompletableFuture<SegmentData> instrumentCalibStatusFuture = readSegment(source, "calibration_status")
+                .thenApply(this::parseInstrumentCalibrationStatus)
+                .handle((result, throwable) -> {
+                    if (throwable != null) {
+                        log.warn("SO2Device " + getId() + " - Calibration status data segment failed: " + throwable.getMessage());
+                        return null; // 返回null表示失败
+                    }
+                    return result;
+                });
+        
+        return CompletableFuture.allOf(floatDataFuture, u16DataFuture, spanCalibConcentrationFuture, instrumentCalibStatusFuture)
+                .thenApply(v -> {
+                    try {
+                        // 获取所有数据，允许部分为null
+                        SegmentData floatData = floatDataFuture.join();
+                        SegmentData u16Data = u16DataFuture.join();
+                        SegmentData spanCalibConcentration = spanCalibConcentrationFuture.join();
+                        SegmentData instrumentCalibStatus = instrumentCalibStatusFuture.join();
+                        
+                        // 统计成功的数据段
+                        int successCount = 0;
+                        int totalCount = 4;
+                        
+                        if (floatData != null) successCount++;
+                        if (u16Data != null) successCount++;
+                        if (spanCalibConcentration != null) successCount++;
+                        if (instrumentCalibStatus != null) successCount++;
+                        
+                        if (floatData == null) {
+                            log.warn("SO2Device " + getId()
+                                    + " - Primary measurement segment failed, skip attribute update (online detection relies on lastUpdated)");
                             return false;
                         }
-                    });
-        }).exceptionally(throwable -> {
-            log.error("SO2Device communication failed: " + throwable.getMessage());
-            return false;
-        });
+
+                        if (instrumentCalibStatus != null) {
+                            processCalibrationStatus(instrumentCalibStatus);
+                        }
+                        updateAllAttributes(floatData, u16Data, spanCalibConcentration, instrumentCalibStatus);
+                        commitPollState();
+
+                        if (successCount == totalCount) {
+                        } else {
+                            log.warn("SO2Device " + getId() + " - Partial success: " + successCount + "/" + totalCount + " segments updated, device status: " + deviceStatus.getStatusName());
+                        }
+                        return true;
+                    } catch (Exception e) {
+                        log.error("SO2Device data processing failed: " + e.getMessage());
+                        return false;
+                    }
+                });
     }
 
     private CompletableFuture<short[]> readSegment(ModbusSource source, String segmentName) {

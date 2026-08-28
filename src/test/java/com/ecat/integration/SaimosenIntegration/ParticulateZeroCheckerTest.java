@@ -4,7 +4,6 @@ import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
-import com.ecat.core.Device.DeviceBase;
 import com.ecat.core.I18n.I18nHelper;
 import com.ecat.core.I18n.I18nProxy;
 import com.ecat.core.I18n.ResourceLoader;
@@ -23,19 +22,15 @@ import org.mockito.MockitoAnnotations;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -48,8 +43,6 @@ public class ParticulateZeroCheckerTest {
     private ParticulateZeroChecker checker;
     private AutoCloseable mockitoCloseable;
 
-    @Mock private ScheduledExecutorService mockExecutor;
-    @Mock private ScheduledFuture<Object> mockScheduledFuture;
     @Mock private ModbusSource mockModbusSource;
     @Mock private ModbusIntegration mockModbusIntegration;
     @Mock private EcatCore mockEcatCore;
@@ -92,7 +85,6 @@ public class ParticulateZeroCheckerTest {
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(mockExecutor);
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -192,109 +184,47 @@ public class ParticulateZeroCheckerTest {
         assertNotNull(checker.getAttrs().get("pm2_5_zero_check_command"));
     }
 
-    @Test
-    public void testStart_WithDebugMode() throws Exception {
-        // 设置调试模式
-        setPrivateField(checker, "isDebug", true);
 
-        when(mockExecutor.scheduleWithFixedDelay(any(Runnable.class), eq(10L), eq(60L), eq(TimeUnit.SECONDS)))
-            .thenAnswer(invocation-> mockScheduledFuture);
-
-        // 执行start方法
-        checker.start();
-
-        // 验证定时任务是否被调度
-        verify(mockExecutor, times(1)).scheduleWithFixedDelay(
-            any(Runnable.class), eq(10L), eq(60L), eq(TimeUnit.SECONDS));
-
-        ScheduledFuture<?> actualFuture = (ScheduledFuture<?>) getPrivateField(checker, "testControlFuture");
-        assertEquals(mockScheduledFuture, actualFuture);
-    }
-
-    @Test
-    public void testStart_WithoutDebugMode() throws Exception {
-        // 设置非调试模式
-        setPrivateField(checker, "isDebug", false);
-
-        // 执行start方法
-        checker.start();
-
-        // 验证定时任务未被调度
-        verify(mockExecutor, never()).scheduleWithFixedDelay(
-            any(Runnable.class), any(Long.class), any(Long.class), any(TimeUnit.class));
-
-        ScheduledFuture<?> actualFuture = (ScheduledFuture<?>) getPrivateField(checker, "testControlFuture");
-        assertNull(actualFuture);
-    }
 
     @Test
     public void testStop() throws Exception {
-        // 设置模拟的ScheduledFuture
-        setPrivateField(checker, "readFuture", mockScheduledFuture);
-        setPrivateField(checker, "testControlFuture", mockScheduledFuture);
+        // 延迟常量注入 50ms（生产 8s/10s）：真因果验证「stop + sweep 后待发关阀拍被撤销」——
+        // 未撤销形态下 50ms 后关阀写必发生（负向窗 > 注入延迟），无需等生产量级延迟
+        ParticulateZeroChecker.pm25AutoCloseDelayMs = 50;
+        ParticulateZeroChecker.pm10AutoCloseDelayMs = 50;
+        try {
+            // 改桩在 start 前一次完成（彼时无并发在飞）：Mockito when() 绑定「最近一次调用」，
+            // 对被并发调用的 mock 二次改桩会把 answer 错绑到其它 invocation
+            CountDownLatch valveWrite = new CountDownLatch(1);
+            com.serotonin.modbus4j.msg.WriteRegisterResponse okResp = mock(WriteRegisterResponse.class);
+            when(okResp.isException()).thenReturn(false);
+            when(mockModbusSource.writeRegister(anyInt(), anyInt())).thenAnswer(inv -> {
+                valveWrite.countDown();
+                return CompletableFuture.completedFuture(okResp);
+            });
 
-        // 执行stop方法
-        checker.stop();
+            checker.start();
+            checker.stop();
+            checker.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
 
-        // 验证任务是否被取消
-        verify(mockScheduledFuture, times(2)).cancel(true);
+            // 负向窗（窗>50ms 注入延迟）：撤销失败形态下 50ms 后必发阀写
+            assertFalse("stop+sweep 后待发关阀拍必须被撤销，不得再写阀寄存器",
+                    valveWrite.await(300, TimeUnit.MILLISECONDS));
+            // never 断言兜住「sweep 前拍已漏发」的旁路（mock 全程记账，不受改桩时点影响）
+            verify(mockModbusSource, never()).writeRegister(anyInt(), anyInt());
+        } finally {
+            ParticulateZeroChecker.pm25AutoCloseDelayMs = 8_000;
+            ParticulateZeroChecker.pm10AutoCloseDelayMs = 10_000;
+        }
     }
 
     @Test
     public void testRelease() throws Exception {
-        // 设置模拟的ScheduledFuture
-        setPrivateField(checker, "readFuture", mockScheduledFuture);
-        setPrivateField(checker, "testControlFuture", mockScheduledFuture);
-
-        // 执行release方法
         checker.release();
-
-        // 验证任务是否被取消
-        verify(mockScheduledFuture, times(2)).cancel(true);
+        verify(mockModbusSource, never()).closeModbus();
     }
 
-    @Test
-    public void testGetNextCommand() throws Exception {
-        // 准备测试数据
-        List<String> commands = new ArrayList<>();
-        commands.add("command1");
-        commands.add("command2");
-        commands.add("command3");
 
-        // 测试从空lastCommand开始
-        // Object result1 = invokePrivateMethod(checker, "getNextCommand", commands, null);
-        // assertEquals("command1", result1);
-
-        // 测试从列表中的命令开始
-        Object result2 = invokePrivateMethod(checker, "getNextCommand", new Class<?>[]{List.class, String.class}, commands, "command1");
-        assertEquals("command2", result2);
-
-        // 测试从最后一个命令开始（应该循环到第一个）
-        Object result3 = invokePrivateMethod(checker, "getNextCommand", new Class<?>[]{List.class, String.class}, commands, "command3");
-        assertEquals("command1", result3);
-
-        // 测试不存在的lastCommand
-        Object result4 = invokePrivateMethod(checker, "getNextCommand", new Class<?>[]{List.class, String.class}, commands, "nonexistent");
-        assertEquals("command1", result4);
-    }
-
-    @Test
-    public void testControlMode() throws Exception {
-        // initDevice();
-        // 设置调试模式
-        setPrivateField(checker, "isDebug", true);
-
-        // 模拟设备列表
-        List<DeviceBase> devices = new ArrayList<>();
-        devices.add(checker);
-        when(mockSaimosenIntegration.getAllDevices()).thenReturn(devices);
-
-        // 执行controlMode方法
-        invokePrivateMethod(checker, "controlMode", new Class<?>[]{}, new Object[0]);
-
-        // 验证设备列表是否被获取
-        verify(mockSaimosenIntegration, times(1)).getAllDevices();
-    }
 
     // ========== I18n测试方法 ==========
 

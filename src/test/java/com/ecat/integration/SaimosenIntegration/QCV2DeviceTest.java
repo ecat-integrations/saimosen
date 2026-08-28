@@ -11,6 +11,7 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
@@ -26,7 +27,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static org.junit.Assert.*;
@@ -47,12 +48,12 @@ public class QCV2DeviceTest {
     @Mock private EcatCore mockEcatCore;
     @Mock private BusRegistry mockBusRegistry;
 
-    private ScheduledExecutorService realExecutor;
+    /** 调度桩说明（W7 终态）：块间节拍走 polling.delay(ms)（ModbusSdkTimers 域池），
+     *  TaskManager 无调度引擎入口（轮询定时归域 SDK 自持），本测不再桩调度路由。 */
 
     @Before
     public void setUp() throws Exception {
         mockitoCloseable = MockitoAnnotations.openMocks(this);
-        realExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
         device = new QCV2Device(createTestEntry());
 
@@ -61,23 +62,25 @@ public class QCV2DeviceTest {
         setPrivateField(device, "modbusIntegration", mockModbusIntegration);
 
         when(mockModbusSource.acquire()).thenReturn("testKey");
+        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
         when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        when(mockTaskManager.getExecutorService()).thenReturn(realExecutor);
 
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
         when(mockEcatCore.getBusRegistry()).thenReturn(mockBusRegistry);
 
         device.init();
+        // 直调 round 须就绪（publicAttrsState 门禁；旧反射+丢 CF 形态把门禁 ISE 静默吞掉，
+        // 直调取结果后显形——补 StateManager 桩 + markReady 对齐生产时序）
+        when(mockEcatCore.getStateManager()).thenReturn(mock(com.ecat.core.State.StateManager.class));
+        device.markReady();
     }
 
     @After
     public void tearDown() throws Exception {
-        if (realExecutor != null) {
-            realExecutor.shutdownNow();
-        }
+        device.stop();
         mockitoCloseable.close();
     }
 
@@ -225,7 +228,14 @@ public class QCV2DeviceTest {
         when(mockModbusSource.readHoldingRegisters(eq(233), eq(51)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse3));
 
-        invokePrivateMethod(device, "readRegisters");
+        // 直调 round（同包可见）：整链（块间节拍 + 第三块 + finishReadCycle）完成即回。
+        // 节拍经 polling.delay(ms) 糖：同包直调须自备未 start 的构建器实例（生产由
+        // start() 两步构建注入 round，见 QCDevice#start）。块间节拍注入 1ms（生产 1s/500ms：
+        // 设备性能要求，链路语义与节拍正交——三块全读+finishReadCycle 断言不受影响）
+        device.secondBlockGapMs = 1L;
+        device.thirdBlockGapMs = 1L;
+        device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
+                .get(10, TimeUnit.SECONDS);
 
         waitForAsyncOperation(() -> {
             for (int i = 1; i <= 4; i++) {

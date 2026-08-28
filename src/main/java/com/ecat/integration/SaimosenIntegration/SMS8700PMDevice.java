@@ -1,5 +1,6 @@
 package com.ecat.integration.SaimosenIntegration;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
@@ -14,7 +15,8 @@ import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.core.State.Unit.PressureUnit;
 import com.ecat.core.State.Unit.RatioUnit;
 import com.ecat.core.State.Unit.TemperatureUnit;
-import com.ecat.integration.ModbusIntegration.ModbusTransactionStrategy;
+import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Tools;
 
 /**
@@ -68,15 +70,16 @@ public class SMS8700PMDevice extends SmsDeviceBase {
 
     @Override
     public void start() {
-        readFuture = getScheduledExecutor().scheduleWithFixedDelay(this::readAndUpdate, 0, 10, TimeUnit.SECONDS);
+        // 10 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
+        ModbusPolling.on(this, modbusSource)
+                .round(this::readAndUpdate)
+                .every(10, TimeUnit.SECONDS)
+                .start();
     }
 
     @Override
     public void stop() {
-        if (readFuture != null) {
-            readFuture.cancel(true);
-            readFuture = null;
-        }
+        // 轮询生命周期已由 ModbusPolling SDK 内绑 RemovalHost（设备移除 sweep）收尾
     }
 
     private void createAttributes() {
@@ -103,16 +106,14 @@ public class SMS8700PMDevice extends SmsDeviceBase {
         addGeneralAlarmAttribute();
     }
 
-    private void readAndUpdate() {
-        ModbusTransactionStrategy.executeWithLambda(modbusSource, source ->
-                source.readHoldingRegisters(REG_BLOCK_START, REG_BLOCK_COUNT)
-                        .thenApply(response -> applyRegisters(response.getShortData()))
-                        .exceptionally(ex -> {
-                            log.warn("SMS8700PMDevice " + getId() + " read failed: " + ex.getMessage());
-                            setAllMalfunction();
-                            return false;
-                        })
-        );
+    CompletableFuture<Boolean> readAndUpdate(ModbusSource source) {
+        return source.readHoldingRegisters(REG_BLOCK_START, REG_BLOCK_COUNT)
+                .thenApply(response -> applyRegisters(response.getShortData()))
+                .exceptionally(ex -> {
+                    log.warn("SMS8700PMDevice " + getId() + " read failed: " + ex.getMessage());
+                    setAllMalfunction();
+                    return false;
+                });
     }
 
     /**

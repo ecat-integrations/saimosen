@@ -82,7 +82,6 @@ public class SMS8600V2DeviceStringSelectAttribute extends StringSelectAttribute 
         return false; // 只要有响应就认为成功
     }
 
-
     protected byte[] checkByteResponse(byte[] buffer) {
         // $ 对应的ASCII字节是 0x24，判断是否以 $ 结束
         if (buffer == null || buffer.length == 0) {
@@ -104,7 +103,5 @@ public class SMS8600V2DeviceStringSelectAttribute extends StringSelectAttribute 
         log.error("Response handling error: " + ex.getMessage());
         return false;
     }
-
-
 
 }
