@@ -61,8 +61,13 @@ public abstract class SerialDeviceBase extends DeviceBase {
         // 流控 (value = SerialPort.FLOW_CONTROL_* 常量组合)
         int flowControl = toInt((String) commSettings.getOrDefault("flow_control", "0"), 0);
 
-        // 超时时间（毫秒），默认 500
-        int timeout = (int) commSettings.getOrDefault("timeout", 500);
+        // 超时时间（毫秒），默认 500。ConfigFlow numeric 字段落 entry 为 BigDecimal（500.0），
+        // 缺省/历史 entry 为 Integer——按 Number 统一收敛，字符串形态走本文件 toInt 惯例，
+        // 不得 (int) Object 硬转（线上建条目即 ClassCastException，bug-record-20260829-080117）
+        Object timeoutRaw = commSettings.getOrDefault("timeout", 500);
+        int timeout = (timeoutRaw instanceof Number)
+                ? ((Number) timeoutRaw).intValue()
+                : toInt(String.valueOf(timeoutRaw), 500);
         // public SerialInfo(String portName, Integer baudrate, Integer dataBits, Integer stopBits, Integer parity) {
         serialInfo = new SerialInfo(
             (String) commSettings.get("serial_port"),

@@ -342,6 +342,35 @@ public class SMS8600V2DeviceTest {
         verify(mockSerialSource, times(1)).closePort();
     }
 
+    @Test
+    public void testLoadAcceptsConfigFlowNumericTimeoutAsBigDecimal() throws Exception {
+        // ConfigFlow numeric 字段落 entry yml 为 BigDecimal（timeout: 500.0）；load 须收敛为 int，
+        // 不能 (int) Object 硬转——线上建条目即 ClassCastException（bug-record-20260829-080117）。
+        // serialIntegration 已由 setUp 注入 mock，load(null) 在 DeviceBase 侧测试安全跳过 registry。
+        Map<String, Object> commSettings = new HashMap<>();
+        commSettings.put("serial_port", "ttyUSB201");
+        commSettings.put("baudrate", "9600");
+        commSettings.put("data_bits", "8");
+        commSettings.put("stop_bits", "1");
+        commSettings.put("parity", "None");
+        commSettings.put("flow_control", "0");
+        commSettings.put("timeout", new java.math.BigDecimal("500.0"));
+        Map<String, Object> data = new HashMap<>();
+        data.put("comm_settings", commSettings);
+
+        ConfigEntry entry = new ConfigEntry.Builder()
+                .entryId("test-entry-sms8600v2-load")
+                .coordinate("com.ecat:integration-saimosen")
+                .uniqueId("SMS8600V2LoadTest")
+                .data(data)
+                .build();
+        SMS8600V2Device loadDevice = new SMS8600V2Device(entry);
+        loadDevice.load(null);
+        assertNotNull("load 须产出 serialInfo（BigDecimal timeout 不得炸）", loadDevice.serialInfo);
+        assertTrue("timeout 须收敛为 500ms: " + loadDevice.serialInfo,
+                loadDevice.serialInfo.toString().contains("timeout=500"));
+    }
+
     // ==================== 实时数据处理测试 ====================
 
     /**

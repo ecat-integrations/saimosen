@@ -312,7 +312,7 @@ public class O3DeviceTest {
         o3Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
         // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
         probe.armStrayDetector();
-        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("stop+sweep 后不得再发起新一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
 
         // sweep 已执行的直接证据：宿主进入已扫状态，再注册移除动作被拒（RemovalHost 契约）
         try {
@@ -333,7 +333,7 @@ public class O3DeviceTest {
         o3Device.stop();
         o3Device.cancelManagedTasks();
         probe.armStrayDetector();
-        assertFalse("release 前 stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("release 前 stop+sweep 后不得再发起新一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         o3Device.release();
         verify(mockModbusSource).closeModbus();
     }
@@ -548,7 +548,7 @@ public class O3DeviceTest {
         o3Device.stop();
         o3Device.cancelManagedTasks();
         probe.armStrayDetector();
-        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("stop+sweep 后不得再发起新一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
         
         // 4. 释放资源
         o3Device.release();
