@@ -27,6 +27,10 @@ import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter
  * @author coffee
  */
 public class SmartPowerStabilizer extends SmsDeviceBase {
+
+    /** 轮询周期（毫秒）。生产=标准采集频率 5s；单测注入短周期压缩负向等待窗。 */
+    protected long pollPeriodMs = 5_000L;
+
     // 寄存器块定义
     private static final Map<String, RegisterBlock> BLOCK_CONFIG = new HashMap<>();
     static {
@@ -55,10 +59,10 @@ public class SmartPowerStabilizer extends SmsDeviceBase {
      * 启动设备数据读取
      */
     public void start() {
-        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
+        // 周期轮询（pollPeriodMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
         ModbusPolling.on(this, modbusSource)
                 .round(this::readRegisters)
-                .every(5, TimeUnit.SECONDS)
+                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

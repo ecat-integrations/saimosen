@@ -21,6 +21,10 @@ import java.util.concurrent.TimeUnit;
  * 
  */
 public class SMS8600V2Device extends SerialDeviceBase {
+
+    /** 轮询周期（毫秒）。生产=标准采集频率 5s；单测注入短周期压缩负向等待窗。 */
+    protected long pollPeriodMs = 5_000L;
+
     public Double molecularWeight = 28.0; //分子质量
 
     @Override
@@ -98,11 +102,11 @@ public class SMS8600V2Device extends SerialDeviceBase {
         // 设备工作状态初值在就绪后（phase=READY）发布，避免预 ready 期 publish；
         // persistable=false 不持久化，重启首轮轮询拿到真实状态即覆盖。
         getAttrs().get("work_status").setDisplayValue(AttributeStatus.NORMAL.getName());
-        // 5 秒周期轮询：调度注册/事务包裹/锁忙消化/异常韧性/统一日志全部由
+        // 周期轮询（pollPeriodMs，生产默认 5s）：调度注册/事务包裹/锁忙消化/异常韧性/统一日志全部由
         // SerialPolling SDK 托管。两步构建：round 体内以 polling.delay() 表达命令间
         // 300ms 节拍（适应设备性能，收编本地 delay() 助手）
         final SerialPolling polling = SerialPolling.on(this, serialSource)
-                .every(5, TimeUnit.SECONDS)
+                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
                 .interCommandDelayMs(300);
         polling
                 .round(source -> getRealData()

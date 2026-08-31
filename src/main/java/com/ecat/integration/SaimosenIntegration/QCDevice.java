@@ -45,6 +45,10 @@ import lombok.Setter;
  * @author coffee
  */
 public class QCDevice extends SmsDeviceBase {
+
+    /** 轮询周期（毫秒）。生产=标准采集频率 5s；单测注入短周期压缩负向等待窗。 */
+    protected long pollPeriodMs = 5_000L;
+
     // 连续读取地址段定义 - 分两次读取全部232个参数
     protected static final int FIRST_BLOCK_START = 0x00; // 第一块起始地址
     protected static final int FIRST_BLOCK_COUNT = 110; // 第一块读取110个寄存器
@@ -90,12 +94,12 @@ public class QCDevice extends SmsDeviceBase {
         // 配置派生属性在 id 解析后（start 时机）赋值，确保 state.deviceId 为持久化 id
         initConfigDerivedAttributeValues();
 
-        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管。
+        // 周期轮询（pollPeriodMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管。
         // 两步构建：round 链内块间 1s/500ms 节拍经 polling.delay(ms) 糖表达（收编本地
         // getScheduledExecutor delay() 助手；同 SMS8600V2Device 的 serial 侧迁移形态）
         final ModbusPolling polling = ModbusPolling.on(this, modbusSource);
         polling.round(source -> readRegisters(polling, source))
-                .every(5, TimeUnit.SECONDS)
+                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

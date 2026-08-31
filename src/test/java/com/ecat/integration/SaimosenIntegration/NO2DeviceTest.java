@@ -15,8 +15,6 @@ import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
-import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
-import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import org.junit.After;
@@ -117,19 +115,6 @@ public class NO2DeviceTest {
             .build();
     }
 
-
-    /**
-     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
-     * （no2Device::readAndUpdate），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
-     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
-     * 生产 start() 的节拍/接线由各 testStart_* 首轮正向覆盖。
-     */
-    private PollingHandle startFastPolling() {
-        return ModbusPolling.on(no2Device, mockModbusSource)
-                .round(no2Device::readAndUpdate)
-                .every(50, TimeUnit.MILLISECONDS)
-                .start();
-    }
 
     // 反射辅助方法
     private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
@@ -258,14 +243,16 @@ public class NO2DeviceTest {
     @Test
     public void testStop_CancelsScheduledTasks() throws Exception {
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
-        startFastPolling();
+        // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
+        no2Device.pollPeriodMs = 150L;
+        no2Device.start();
         assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 
         no2Device.stop();
         no2Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
-        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        // 负向观察窗 300ms ≥ 2 拍×150ms（生产 start() 注入节拍；cancel 失效形态下下一拍必现形）
         probe.armStrayDetector();
-        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("stop+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(300, TimeUnit.MILLISECONDS));
 
         // sweep 已执行的直接证据：宿主进入已扫状态，再注册移除动作被拒（RemovalHost 契约）
         try {
@@ -279,14 +266,16 @@ public class NO2DeviceTest {
     public void testRelease_CancelsReadFuture() throws Exception {
         when(mockModbusSource.isModbusOpen()).thenReturn(true);
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
-        startFastPolling();
+        // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
+        no2Device.pollPeriodMs = 150L;
+        no2Device.start();
         assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 
         // disableEntry 同序：stop → sweep（移除动作停轮询）→ release（源释放）
         no2Device.stop();
         no2Device.cancelManagedTasks();
         probe.armStrayDetector();
-        assertFalse("release 前 stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("release 前 stop+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(300, TimeUnit.MILLISECONDS));
         no2Device.release();
         verify(mockModbusSource).closeModbus();
     }

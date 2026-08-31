@@ -32,7 +32,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -292,31 +291,16 @@ public class QCV2DeviceTest {
         device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
                 .get(10, TimeUnit.SECONDS);
 
-        waitForAsyncOperation(() -> {
-            for (int i = 1; i <= 4; i++) {
-                AttributeBase<?> v = device.getAttrs().get("voltage_l" + i);
-                AttributeBase<?> c = device.getAttrs().get("current_l" + i);
-                AttributeBase<?> p = device.getAttrs().get("power_l" + i);
-                if (v == null || v.getState() == null || v.getState().getValue() == null) return false;
-                if (c == null || c.getState() == null || c.getState().getValue() == null) return false;
-                if (p == null || p.getState() == null || p.getState().getValue() == null) return false;
-            }
-            AttributeBase<?> so2Film = device.getAttrs().get("so2_film_changer_status");
-            AttributeBase<?> o3Film = device.getAttrs().get("o3_film_changer_status");
-            AttributeBase<?> so2Time = device.getAttrs().get("so2_film_ch1_switch_time");
-            AttributeBase<?> temp = device.getAttrs().get("temperature");
-            AttributeBase<?> addr = device.getAttrs().get("device_address");
-            AttributeBase<?> relay = device.getAttrs().get("relay_l1");
-            AttributeBase<?> sampling = device.getAttrs().get("sample_tube_sampling_status");
-            if (so2Film == null || so2Film.getState() == null || so2Film.getState().getValue() == null) return false;
-            if (o3Film == null || o3Film.getState() == null || o3Film.getState().getValue() == null) return false;
-            if (so2Time == null || so2Time.getState() == null || so2Time.getState().getValue() == null) return false;
-            if (temp == null || temp.getState() == null || temp.getState().getValue() == null) return false;
-            if (addr == null || addr.getState() == null || addr.getState().getValue() == null) return false;
-            if (relay == null || relay.getState() == null || relay.getState().getValue() == null) return false;
-            if (sampling == null || sampling.getState() == null || sampling.getState().getValue() == null) return false;
-            return true;
-        }, 3000);
+        // round 链已被上方 .get(10s) join：finishReadCycle（含 updateCalulateAttr 二次标定写）
+        // 在最内层 thenApply 内先于 future 完成执行，全部 midState 写与 .get() 返回之间
+        // happens-before——读即终态，就绪是直接可断言的不变量，无需轮询等待（历史形态
+        // fire-and-forget 调 readRegisters 无 join，才需要 Thread.sleep(50) 条件轮询）。
+        assertAllStatesReady(device,
+                "voltage_l1", "voltage_l2", "voltage_l3", "voltage_l4",
+                "current_l1", "current_l2", "current_l3", "current_l4",
+                "power_l1", "power_l2", "power_l3", "power_l4",
+                "so2_film_changer_status", "o3_film_changer_status", "so2_film_ch1_switch_time",
+                "temperature", "device_address", "relay_l1", "sample_tube_sampling_status");
 
         verify(mockModbusSource).readHoldingRegisters(eq(233), eq(41));
 
@@ -490,13 +474,19 @@ public class QCV2DeviceTest {
         }
     }
 
-    private void waitForAsyncOperation(Supplier<Boolean> condition, long timeoutMs) throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-        while (!condition.get()) {
-            if (System.currentTimeMillis() - startTime > timeoutMs) {
-                throw new AssertionError("异步操作超时，等待了" + timeoutMs + "ms");
+    /**
+     * 断言 round 链 join 完成后全部属性 state 已就绪：finishReadCycle 先于 future 完成执行，
+     * midState 写与 .get() 返回之间 happens-before，就绪是确定不变量（替代旧 Thread.sleep(50)
+     * 条件轮询——那是 fire-and-forget 无 join 时代的产物）。
+     */
+    private static void assertAllStatesReady(QCV2Device device, String... ids) {
+        StringBuilder missing = new StringBuilder();
+        for (String id : ids) {
+            AttributeBase<?> a = device.getAttrs().get(id);
+            if (a == null || a.getState() == null || a.getState().getValue() == null) {
+                missing.append(id).append(' ');
             }
-            Thread.sleep(50);
         }
+        assertTrue("round join 后属性 state 须全部就绪，未就绪: " + missing, missing.length() == 0);
     }
 }

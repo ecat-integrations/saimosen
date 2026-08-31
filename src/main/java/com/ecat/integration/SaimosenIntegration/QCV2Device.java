@@ -59,6 +59,9 @@ import lombok.Setter;
  */
 public class QCV2Device extends SmsDeviceBase {
 
+    /** 轮询周期（毫秒）。生产=标准采集频率 5s；单测注入短周期压缩负向等待窗。 */
+    protected long pollPeriodMs = 5_000L;
+
     private static final int FIRST_BLOCK_START = 0x00;
     private static final int FIRST_BLOCK_COUNT = 110;
 
@@ -111,13 +114,13 @@ public class QCV2Device extends SmsDeviceBase {
     @Override
     public void start() {
         initConfigDerivedAttributeValues();
-        // 5 秒周期轮询：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK
+        // 周期轮询（pollPeriodMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK
         // 托管（F-23 A 家族形态，同 QCDevice#start；本类为 9629cde 独立实现，合入时对齐
         // ——core 已把设备 IO 轮询逐出业务池且 IO 禁入，旧 scheduleWithFixedDelay 接线
         // 无编译出路）。两步构建：round 链内块间 1s/800ms 节拍经 polling.delay(ms) 表达
         final ModbusPolling polling = ModbusPolling.on(this, modbusSource);
         polling.round(source -> readRegisters(polling, source))
-                .every(5, TimeUnit.SECONDS)
+                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

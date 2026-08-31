@@ -9,9 +9,7 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
-import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
-import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
@@ -71,7 +69,6 @@ public class SmartPowerStabilizerTest {
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
-        // ModbusPolling SDK 装配：测试显式构造（生产由设备 start 自持定时器）
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -112,23 +109,10 @@ public class SmartPowerStabilizerTest {
     }
 
 
-    /**
-     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
-     * （stabilizer::readRegisters），节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗从 6s 收
-     * 到 600ms 仍覆盖 >10 个周期（cancel 失效形态下下一轮 51ms 内必现形，覆盖强度等价）。
-     * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPolling 正向覆盖。
-     */
-    private PollingHandle startFastPolling() {
-        return ModbusPolling.on(stabilizer, mockModbusSource)
-                .round(stabilizer::readRegisters)
-                .every(50, TimeUnit.MILLISECONDS)
-                .start();
-    }
-
     @Test
     public void testStart_SchedulesProductionPolling() throws Exception {
-        // 生产 start() 接线回归（快节拍改造后 testStart_SchedulesReadTask 不再走 start()，
-        // 接线覆盖归本测试）：首轮 latch 等 round 真正读源 + DEFAULT 块参数 verify；
+        // 生产 start() 接线回归：首轮 latch 等 round 真正读源 + DEFAULT 块参数 verify（需桩
+        // 读响应，与注入短节拍的负向测试分立）；
         // 生产节拍 5s，测试 ms 级收尾
         CountDownLatch firstRead = new CountDownLatch(1);
         ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
@@ -252,19 +236,21 @@ public class SmartPowerStabilizerTest {
                     return CompletableFuture.completedFuture(mockReadResp);
                 });
 
-        // 快节拍轮询同经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄）；首轮立即发射
+        // 轮询经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄）；首轮立即发射
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
-        startFastPolling();
+        // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
+        stabilizer.pollPeriodMs = 150L;
+        stabilizer.start();
         assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
                 firstRead.await(5, TimeUnit.SECONDS));
         verify(mockModbusSource, times(1)).readHoldingRegisters(0, 41);
 
         // lifecycle chokepoint：stop + sweep 执行移除动作；
-        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
+        // 负向观察窗 300ms ≥ 2 拍×150ms（生产 start() 注入节拍；cancel 失效形态下下一拍必现形）
         stabilizer.stop();
         stabilizer.cancelManagedTasks();
         probe.armStrayDetector();
-        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("stop+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(300, TimeUnit.MILLISECONDS));
 
         // 已扫状态=再注册被拒（RemovalHost 契约）
         try {

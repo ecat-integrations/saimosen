@@ -16,7 +16,6 @@ import com.ecat.core.State.TextAttribute;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.SerialIntegration.SerialIntegration;
-import com.ecat.integration.SerialIntegration.SerialPolling;
 import com.ecat.integration.SerialIntegration.SerialSource;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlerStrategy;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
@@ -313,32 +312,38 @@ public class SMS8600V2DeviceTest {
     @Test
     public void testStop_CancelsScheduledTasks() throws Exception {
         CountDownLatch firstRound = pollingRoundProbe(1);
-        startFastPolling();
+        // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
+        sms8600v2Device.pollPeriodMs = 150L;
+        sms8600v2Device.start();
         assertTrue("首轮必须发起", firstRound.await(8, TimeUnit.SECONDS));
 
         sms8600v2Device.stop();
         sms8600v2Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.stopWithManagedSweep）
-        // 负向探针须换新 latch（旧 latch 已计数永真）：新探针只计其后再发起的 round；
-        // 600ms 窗覆盖 >10 个 50ms 周期（等价「窗 > 生产周期」覆盖强度。此前本断言挂在
-        // 生产 5s 节拍上而窗仅 600ms——cancel 失效时下轮最早 +5s 才现形，断言恒真空转，
-        // 已改测试自建快节拍与生产节拍解耦）
-        CountDownLatch nextRound = pollingRoundProbe(1);
+        // 负向探针须换新 latch（旧 latch 已计数永真）：新探针只计其后再发起的 round。阈值 2：
+        // 容至多 1 个 stop 前在飞轮迟到入口（cancel 不打断在飞轮；被抢占的迟到入口发起于
+        // stop 前，不是新轮）；真「轮询未停」按 150ms 节拍 300ms 窗内 ≥2 次入口立即红
+        CountDownLatch nextRound = pollingRoundProbe(2);
 
-        assertFalse("stop+sweep 后不得再发起下一轮", nextRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("stop+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）",
+                nextRound.await(300, TimeUnit.MILLISECONDS));
     }
 
     @Test
     public void testRelease_ClosesSerialPortAndCancelsTasks() throws Exception {
         when(mockSerialSource.isPortOpen()).thenReturn(true);
         CountDownLatch firstRound = pollingRoundProbe(1);
-        startFastPolling();
+        // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
+        sms8600v2Device.pollPeriodMs = 150L;
+        sms8600v2Device.start();
         assertTrue("首轮必须发起", firstRound.await(8, TimeUnit.SECONDS));
 
         sms8600v2Device.release();
         sms8600v2Device.cancelManagedTasks();   // 框架 chokepoint 同点（IntegrationDeviceBase.onRelease 先 sweep 后 release）
-        CountDownLatch nextRound = pollingRoundProbe(1);
+        // 同 stop 测：阈值 2 容至多 1 个 stop 前在飞轮迟到入口；真「轮询未停」300ms 窗内 ≥2 次入口立即红
+        CountDownLatch nextRound = pollingRoundProbe(2);
 
-        assertFalse("release+sweep 后不得再发起下一轮", nextRound.await(600, TimeUnit.MILLISECONDS));
+        assertFalse("release+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）",
+                nextRound.await(300, TimeUnit.MILLISECONDS));
         verify(mockSerialSource, times(1)).closePort();
     }
 
@@ -1184,21 +1189,6 @@ public class SMS8600V2DeviceTest {
         }
     }
     // ==================== 轮询观测垫片（18 号迁移：句柄字段已删，经 round 入口探针观测） ====================
-
-    /**
-     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式，serial 侧形态）：
-     * 节拍测试自持 50ms——与生产 every(5s) 解耦，负向观察窗 600ms 覆盖 >10 个周期
-     * （cancel 失效形态下下一轮 51ms 内必现形，等价「窗 > 生产周期」覆盖强度）。
-     * round 体用占位：本类探针 tryAcquire 恒返 null（锁忙跳过轮零业务副作用），round
-     * 体从不执行——负向测试断言的是轮询生命周期，与 round 业务体无关。生产 start()
-     * 的接线由 testStart_SchedulesReadTasks 走真实 start() 正向覆盖。
-     */
-    private void startFastPolling() {
-        SerialPolling.on(sms8600v2Device, mockSerialSource)
-                .every(50, TimeUnit.MILLISECONDS)
-                .round(source -> CompletableFuture.completedFuture(true))
-                .start();
-    }
 
     /** round 入口探针：executePolling 每轮首访 tryAcquire——返回 null=锁忙跳过（零业务副作用）。 */
     private CountDownLatch pollingRoundProbe(int rounds) {

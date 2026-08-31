@@ -14,7 +14,6 @@ import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
-import com.ecat.integration.ModbusIntegration.Sdk.PollingHandle;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
@@ -130,25 +129,10 @@ public class QCDeviceTest {
     }
 
 
-    /**
-     * 测试自建快节拍轮询（tianhong TH2004HCODeviceTest 同范式）：round 复用生产同函数
-     * （readRegisters，两步构建同 QCDevice#start），节拍测试自持 50ms——与生产 every(5s)
-     * 解耦，负向观察窗从 6s 收到 600ms 仍覆盖 >10 个周期。注意：round 链内块间节拍经
-     * secondBlockGapMs（生产 1s），快节拍下调用方须先注入小值，
-     * 否则单轮 ≥1s、600ms 窗盖不住一个周期（负向覆盖强度受损）。
-     * 生产 start() 的节拍/接线由 testStart_SchedulesProductionPolling 正向覆盖。
-     */
-    private PollingHandle startFastPolling() {
-        final ModbusPolling polling = ModbusPolling.on(device, mockModbusSource);
-        return polling.round(source -> device.readRegisters(polling, source))
-                .every(50, TimeUnit.MILLISECONDS)
-                .start();
-    }
-
     @Test
     public void testStart_SchedulesProductionPolling() throws Exception {
-        // 生产 start() 接线回归（快节拍改造后 lifecycle 测试不再走 start()，接线覆盖归本
-        // 测试）：首轮 latch 等 round 真正读源 + FIRST 块参数 verify。块间节拍注入 1ms
+        // 生产 start() 接线回归：首轮 latch 等 round 真正读源 + FIRST 块参数 verify（需桩
+        // 读响应，与注入短节拍的负向测试分立）。块间节拍注入 1ms
         // （生产 1s：设备性能要求，节拍值与接线正交）——sweep 后在飞续段即时安静
         device.secondBlockGapMs = 1L;
         CountDownLatch firstRead = new CountDownLatch(1);
@@ -377,12 +361,14 @@ public class QCDeviceTest {
                     return CompletableFuture.completedFuture(mockReadResp);
                 });
 
-        // 快节拍轮询同经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄到设备字段）；
-        // 块间节拍注入 1ms（生产 1s：设备性能要求）——否则单轮 ≥1s，600ms 负向窗盖不住
+        // 轮询经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄到设备字段）；
+        // 块间节拍注入 1ms（生产 1s：设备性能要求）——否则单轮 ≥1s，300ms 负向窗盖不住
         // 一个周期（覆盖强度受损）
         device.secondBlockGapMs = 1L;
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
-        startFastPolling();
+        // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
+        device.pollPeriodMs = 150L;
+        device.start();
         assertTrue("首轮（initialDelay=0）必须立即发起 FIRST 块读",
                 firstRead.await(5, TimeUnit.SECONDS));
         verify(mockModbusSource, times(1)).readHoldingRegisters(
@@ -392,8 +378,8 @@ public class QCDeviceTest {
         device.stop();
         device.cancelManagedTasks();
         probe.armStrayDetector();
-        // 负向观察窗 600ms 覆盖 >10 个 50ms 周期（等价原「6s 窗 > 5s 生产周期」覆盖强度）
-        assertFalse("stop+sweep 后不得再发起下一轮", probe.strayRound.await(600, TimeUnit.MILLISECONDS));
+        // 负向观察窗 300ms ≥ 2 拍×150ms（生产 start() 注入节拍；cancel 失效形态下下一拍必现形）
+        assertFalse("stop+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(300, TimeUnit.MILLISECONDS));
 
         // sweep 已执行的直接证据=宿主进入已扫状态（再注册被拒，RemovalHost 契约）
         try {
@@ -441,40 +427,14 @@ public class QCDeviceTest {
         device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
                 .get(10, TimeUnit.SECONDS);
 
-        // readRegisters 异步解析两块响应、逐属性 updateValue 建在途 midState；各属性 state 就绪时序不同。
-        // 必须等到全部 12 个待断言属性 state 都就绪，否则 getState() 为 null 会致断言 NPE（此前只等
-        // so2_film 一个属性，其余属性 state 可能尚未构建，导致约 30% 概率 flake）。
-        //
-        // 另有一个标定阶段窗口须额外等待：finishReadCycle→updateCalulateAttr 会对 4 个流量属性做二次标定写
-        // （pm10_std_flow×1.021、pm2_5_working_flow×0.997 等）。updateValue 把新值写入在途 midState，
-        // getState() 直接返 midState（同周期内 updateValue 后立即可读，无需 publicState）。故 updateCalulateAttr
-        // 内「写 sampling_tube_residence_time（开头）」与「标定 pm10_std_flow（靠后）」是两次独立的 midState 写，
-        // 其间 getState() 能读到「residence_time 已置非空 / pm10_std_flow 仍原始 15.948」的中间态。
-        // 「12 属性 getValue()!=null」（residence_time 非 null 即满足）只能证明标定【已开始】，不能证明 pm10 标定【已完成】。
-        // -T1C 全机 CPU 争抢下，调度线程恰在此两步间被抢占，50ms 轮询撞上中间态 → 断言读 15.948（非 16.28）flake。
-        //
-        // 修：除 12 属性非空外，再等两个标定属性（pm10_std_flow 标定段首个、pm2_5_working_flow 末个，夹住整个标定段）
-        // 连续两轮值相同——单次 readRegisters 内标定只发生一次（raw→calibrated 后即稳），稳态即标定完成。
-        // 系数无关（×1.021 放大 / ×0.997 缩小方向不一，阈值法脆弱）；最多等 2 秒，每 50ms 复检。
-        final Float[] prevPm10StdFlow = {null};
-        final Float[] prevPm25WorkingFlow = {null};
-        waitForAsyncOperation(() -> {
-            String[] ids = {"bench_temp", "system_state", "station_ua", "so2_film_changer_status",
-                    "o3_film_changer_status", "so2_gas_temp", "o3_gas_temp", "sampling_tube_residence_time",
-                    "heating_temp", "fan_power", "pm10_std_flow", "pm2_5_working_flow"};
-            for (String id : ids) {
-                AttributeBase<?> a = device.getAttrs().get(id);
-                if (a == null || a.getState() == null || a.getState().getValue() == null) return false;
-            }
-            // 标定属性稳态判定：首轮记录基线（返 false 强制再轮），次轮起要求值不变。
-            Float pm10StdFlow = (Float) device.getAttrs().get("pm10_std_flow").getState().getValue();
-            Float pm25WorkingFlow = (Float) device.getAttrs().get("pm2_5_working_flow").getState().getValue();
-            boolean stable = prevPm10StdFlow[0] != null && prevPm10StdFlow[0].equals(pm10StdFlow)
-                    && prevPm25WorkingFlow[0] != null && prevPm25WorkingFlow[0].equals(pm25WorkingFlow);
-            prevPm10StdFlow[0] = pm10StdFlow;
-            prevPm25WorkingFlow[0] = pm25WorkingFlow;
-            return stable;
-        }, 2000);
+        // round 链已被上方 .get(10s) join：finishReadCycle（含 updateCalulateAttr 对 4 个流量属性的
+        // 二次标定写）在最内层 thenApply 内先于 future 完成执行，全部 midState 写与 .get() 返回
+        // 之间 happens-before——读即终态，就绪是直接可断言的不变量，无需轮询等待（历史形态
+        // fire-and-forget 调 readRegisters 无 join，才需要 50ms 条件轮询 + 标定稳态复检）。
+        assertAllStatesReady(device,
+                "bench_temp", "system_state", "station_ua", "so2_film_changer_status",
+                "o3_film_changer_status", "so2_gas_temp", "o3_gas_temp", "sampling_tube_residence_time",
+                "heating_temp", "fan_power", "pm10_std_flow", "pm2_5_working_flow");
 
         // 断言部分属性已被正确解析
         ModbusFloatAttribute benchTemp = (ModbusFloatAttribute) device.getAttrs().get("bench_temp");
@@ -556,18 +516,19 @@ public class QCDeviceTest {
     }
 
     /**
-     * 等待异步操作完成
-     * @param condition 检查条件，返回true表示完成
-     * @param timeoutMs 超时时间（毫秒）
+     * 断言 round 链 join 完成后全部属性 state 已就绪：finishReadCycle 先于 future 完成执行，
+     * midState 写与 .get() 返回之间 happens-before，就绪是确定不变量（替代旧 Thread.sleep(50)
+     * 条件轮询——那是 fire-and-forget 无 join 时代的产物）。
      */
-    private void waitForAsyncOperation(java.util.function.Supplier<Boolean> condition, long timeoutMs) throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-        while (!condition.get()) {
-            if (System.currentTimeMillis() - startTime > timeoutMs) {
-                throw new AssertionError("异步操作超时，等待了" + timeoutMs + "ms");
+    private static void assertAllStatesReady(QCDevice device, String... ids) {
+        StringBuilder missing = new StringBuilder();
+        for (String id : ids) {
+            AttributeBase<?> a = device.getAttrs().get(id);
+            if (a == null || a.getState() == null || a.getState().getValue() == null) {
+                missing.append(id).append(' ');
             }
-            Thread.sleep(50); // 每50ms检查一次，减少等待时间
         }
+        assertTrue("round join 后属性 state 须全部就绪，未就绪: " + missing, missing.length() == 0);
     }
 
     // ========== I18n测试方法 ==========
