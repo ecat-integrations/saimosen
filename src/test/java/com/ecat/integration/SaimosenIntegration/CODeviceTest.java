@@ -558,6 +558,7 @@ public class CODeviceTest {
         // 测试并行读取策略
         short[] mockFloatRegisters = new short[40];
         short[] mockU16Registers = new short[13];
+        // 数组 new 无法独立成句，按原行恢复（警告回归可接受）
         short[] mockCalibRegisters = new short[1];
         
         // 设置测试数据

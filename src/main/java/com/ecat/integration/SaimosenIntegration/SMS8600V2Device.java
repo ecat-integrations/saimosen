@@ -280,7 +280,7 @@ public class SMS8600V2Device extends SerialDeviceBase {
         if (result.endsWith("$")) {
             result = result.replace("$$", "$");
             result = result.replace("\r\n", "");
-            String newValue = new String(context.getNewValue());
+            new String(context.getNewValue()); // String newValue
             if ((new String(context.getNewValue())).equals(O3_REAL_DATA_CMD)) {
                 updateO3RealDataAttribute(result);
                 return true;

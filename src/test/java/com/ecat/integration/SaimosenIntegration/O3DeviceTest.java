@@ -481,7 +481,7 @@ public class O3DeviceTest {
         assertNotNull(segmentConfig);
         
         // 通过反射获取DataSegment类
-        Class<?> dataSegmentClass = Class.forName("com.ecat.integration.SaimosenIntegration.O3Device$DataSegment");
+        Class.forName("com.ecat.integration.SaimosenIntegration.O3Device$DataSegment"); // Class<?> dataSegmentClass
         
         // 验证配置
         Map<String, Object> config = (Map<String, Object>) segmentConfig;
@@ -501,7 +501,7 @@ public class O3DeviceTest {
     @Test
     public void testUpdateAttributeMethod() throws Exception {
         // 测试updateAttribute私有方法 - 使用正确的参数类型
-        Object result = invokePrivateMethod(o3Device, "updateAttribute", "o3", 25.5, AttributeStatus.NORMAL);
+        invokePrivateMethod(o3Device, "updateAttribute", "o3", 25.5, AttributeStatus.NORMAL); // Object result
 
         // 验证属性值已更新
         NumericAttribute o3Attr = (NumericAttribute) o3Device.getAttrs().get("o3");
@@ -771,7 +771,7 @@ public class O3DeviceTest {
         // 验证第二个float值：5445 96EB
         // rawData[2] = 0x5445, rawData[3] = 0x96EB
         // 使用convertLittleEndianByteSwapToFloat(0x96EB, 0x5445)
-        double expectedSecondFloat = 0.0; // 需要计算实际值
+        // double expectedSecondFloat = 0.0; // 需要计算实际值
         assertNotNull("第二个float值不应为null", floatValues[1]);
         
         // 验证第三个float值：3445 77E6

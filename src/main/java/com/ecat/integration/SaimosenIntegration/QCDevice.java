@@ -776,7 +776,6 @@ public class QCDevice extends SmsDeviceBase {
     protected static class AttributeInfo {
         String attributeId;
         AttributeClass attrClass;
-        String displayName;        // 中文显示名称
         ModbusDataType dataType;
         @SuppressWarnings("unused")
         int registerCount;
@@ -793,7 +792,6 @@ public class QCDevice extends SmsDeviceBase {
                 ModbusDataType dataType, int registerCount, UnitInfo unitType, boolean isWritable, int displayPrecision) {
             this.attributeId = attributeId;
             this.attrClass = attrClass;
-            this.displayName = displayName;
             this.dataType = dataType;
             this.registerCount = registerCount;
             this.unitType = unitType;

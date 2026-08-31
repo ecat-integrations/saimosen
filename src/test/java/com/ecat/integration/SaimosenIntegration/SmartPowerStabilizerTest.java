@@ -373,7 +373,7 @@ public class SmartPowerStabilizerTest {
             throw new IllegalArgumentException("Modbus响应长度不足");
         }
         
-        int startAddress, registerCount;
+        int registerCount;
 
         // 检查功能码是否为03
         if ((response[1] & 0xFF) == 0x03) {
@@ -386,11 +386,9 @@ public class SmartPowerStabilizerTest {
         else if ((response[1] & 0xFF) == 0x06) {
             if (byteOrder == ByteOrder.BIG_ENDIAN) {
                 // 大端序：高字节在前，低字节在后
-                startAddress = ((response[2] & 0xFF) << 8) | (response[3] & 0xFF);
                 registerCount = ((response[4] & 0xFF) << 8) | (response[5] & 0xFF);
             } else {
                 // 小端序：低字节在前，高字节在后
-                startAddress = ((response[3] & 0xFF) << 8) | (response[2] & 0xFF);
                 registerCount = ((response[5] & 0xFF) << 8) | (response[4] & 0xFF);
             }
         } else {

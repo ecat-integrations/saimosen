@@ -547,7 +547,7 @@ public class NO2DeviceTest {
         assertNotNull(segmentConfig);
         
         // 通过反射获取DataSegment类
-        Class<?> dataSegmentClass = Class.forName("com.ecat.integration.SaimosenIntegration.NO2Device$DataSegment");
+        Class.forName("com.ecat.integration.SaimosenIntegration.NO2Device$DataSegment"); // Class<?> dataSegmentClass
         
         // 验证配置
         Map<String, Object> config = (Map<String, Object>) segmentConfig;

@@ -9,7 +9,6 @@ import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.TextAttribute;
-import com.ecat.core.State.Unit.LiterFlowUnit;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Tools;
@@ -34,9 +33,6 @@ public class CalibratorDevice extends SmsDeviceBase {
     private static final int SECOND_BLOCK_START = 0x46; // 第二块起始地址（0x46-0x4A）
     private static final int SECOND_BLOCK_COUNT = 5; // 第二块读取5个寄存器（覆盖所有参数）
     private static final int GAS_SELECT_START = 0x46; // 选择气体参数
-
-    private static final String GPTNO = "gptno_concentration"; // GPTNO气体
-    private static final String GPTO3 = "gpto3_concentration"; // GPTO3气体
 
     BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
 
