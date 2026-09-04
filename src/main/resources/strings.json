@@ -543,7 +543,8 @@
       "o3_gas_temp": "O3支管温度",
       "sampling_tube_residence_time": "采样管滞留时间",
       "tube_length": "采样管长度",
-      "tube_inner_diameter": "采样管内径"
+      "tube_inner_diameter": "采样管内径",
+      "sample_tube_volume_flow": "采样管流量"
     },
     "qcv2device": {
       "system_state": "仪器状态",
@@ -706,6 +707,7 @@
       "sampling_tube_residence_time": "采样管滞留时间",
       "tube_length": "采样管长度",
       "tube_inner_diameter": "采样管内径",
+      "sample_tube_volume_flow": "采样管流量",
       "voltage_l1": "第1路U",
       "voltage_l2": "第2路U",
       "voltage_l3": "第3路U",

@@ -503,6 +503,9 @@ public class QCDevice extends SmsDeviceBase {
                 NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false));
         setAttribute(new NumericAttribute("sampling_tube_residence_time", AttributeClass.TIME,
                 NoConversionUnit.of("s", "秒"), NoConversionUnit.of("s", "秒"), 1, false, false));
+        // 采样管流量：由采样管流速（sample_tube_flow, m/s）与内径（tube_inner_diameter, m）算得的体积流量，单位 L/min
+        setAttribute(new NumericAttribute("sample_tube_volume_flow", "采样管流量", AttributeClass.FLOW,
+                LiterFlowUnit.L_PER_MINUTE, LiterFlowUnit.L_PER_MINUTE, 2, false, false));
     }
 
     /**
@@ -731,22 +734,42 @@ public class QCDevice extends SmsDeviceBase {
     }
 
     private void updateCalulateAttr() {
+        // 采样管长度/内径为不变配置值，随每次流速更新一并刷新（原仅在 start 初始化写一次）
+        NumericAttribute tubeLengthAttr = (NumericAttribute) getAttrs().get("tube_length");
+        if (tubeLengthAttr != null) {
+            tubeLengthAttr.updateValue(deviceConfig.getSamplingTubeLength(), AttributeStatus.NORMAL);
+        }
+        NumericAttribute tubeDiameterAttr = (NumericAttribute) getAttrs().get("tube_inner_diameter");
+        if (tubeDiameterAttr != null) {
+            tubeDiameterAttr.updateValue(deviceConfig.getSamplingTubeInnerDiameter(), AttributeStatus.NORMAL);
+        }
+
         // 计算总采样管滞留时间
         ModbusFloatAttribute samplingTubeFlowAttr = (ModbusFloatAttribute) getAttrs().get("sample_tube_flow");
         if (samplingTubeFlowAttr != null) {
             Double residenceTime = 999.0; // 默认值
+            double volumeFlow = 0.0; // 采样管流量（L/min）默认值
             // 从不可变 state 读，getValue 已封装为 protected
             AttrState<?> samplingTubeFlowState = samplingTubeFlowAttr.getState();
             Float samplingTubeFlow = samplingTubeFlowState != null ? (Float) samplingTubeFlowState.getValue() : null;
             if( samplingTubeFlow == null || samplingTubeFlow <= 0) {
-                log.warn("采样管流量为0或null，无效，无法计算滞留时间，设置为极大的默认值");
+                log.warn("采样管流速为0或null，无效，无法计算滞留时间与流量，滞留时间置极大默认值、流量置0");
             }
             else{
                 residenceTime = deviceConfig.getSamplingTubeLength() / samplingTubeFlow;
+                // 流量(L/min) = 截面积(m²) × 流速(m/s) × 60000；截面积 = π × 内径(m)² / 4
+                double innerDiameter = deviceConfig.getSamplingTubeInnerDiameter();
+                double crossSectionArea = Math.PI * innerDiameter * innerDiameter / 4.0;
+                volumeFlow = crossSectionArea * samplingTubeFlow * 60000.0;
             }
 
             NumericAttribute timeAttr = (NumericAttribute) getAttrs().get("sampling_tube_residence_time");
             timeAttr.updateValue(residenceTime, AttributeStatus.NORMAL);
+
+            NumericAttribute volumeFlowAttr = (NumericAttribute) getAttrs().get("sample_tube_volume_flow");
+            if (volumeFlowAttr != null) {
+                volumeFlowAttr.updateValue(volumeFlow, AttributeStatus.NORMAL);
+            }
         }
 
         // TODO: 这里的流量是一个手动标定的转换系数，实际应用中需要根据具体情况调整，后面要优化
