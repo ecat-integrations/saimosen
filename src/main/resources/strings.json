@@ -846,7 +846,8 @@
       "reserved_9": "保留字段9",
       "heating_tube_target_temp": "加热管设置温度",
       "tube_length": "采样管长度",
-      "tube_inner_diameter": "采样管内径"
+      "tube_inner_diameter": "采样管内径",
+      "sample_tube_volume_flow": "采样管流量"
     },
     "particulate_zero_checker": {
       "pm10_zero_check_command": "PM10零点检查命令",

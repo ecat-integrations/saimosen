@@ -9,9 +9,11 @@ import com.ecat.core.Utils.DynamicConfig.ConfigDefinition;
 import com.ecat.core.Utils.DynamicConfig.ConfigItem;
 import com.ecat.core.Utils.DynamicConfig.ConfigItemBuilder;
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.State.AttrState;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.Unit.LiterFlowUnit;
 import com.ecat.core.State.Unit.NoConversionUnit;
 import com.ecat.core.State.Unit.PowerUnit;
 import com.ecat.core.State.Unit.RatioUnit;
@@ -305,6 +307,10 @@ public class SampleTube extends SmsDeviceBase {
                 NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 2, false, false));
         setAttribute(new NumericAttribute("tube_inner_diameter", AttributeClass.NUMERIC,
                 NoConversionUnit.of("m", "米"), NoConversionUnit.of("m", "米"), 3, false, false));
+        // 采样管流量：由样气流速（gas_flow_rate, m/s）与内径算得的体积流量，单位 L/min，
+        // 与 QCDevice/QCV2Device 同公式；值在 updateCalulateAttr（每轮读取后）计算写入。
+        setAttribute(new NumericAttribute("sample_tube_volume_flow", "采样管流量", AttributeClass.FLOW,
+                LiterFlowUnit.L_PER_MINUTE, LiterFlowUnit.L_PER_MINUTE, 2, false, false));
     }
 
     /**
@@ -323,6 +329,41 @@ public class SampleTube extends SmsDeviceBase {
     }
 
     /**
+     * 计算派生属性：采样管流量（sample_tube_volume_flow）。
+     * <p>由样气流速（gas_flow_rate, m/s）与内径（tube_inner_diameter, m）算得体积流量，单位 L/min，
+     * 与 QCDevice/QCV2Device 同公式：流量 = 截面积(π·d²/4) × 流速 × 60000。
+     * 采样管长度/内径为不变配置值，随每次流速更新一并刷新（与 QC 一致）。
+     */
+    private void updateCalulateAttr() {
+        NumericAttribute tubeLengthAttr = (NumericAttribute) getAttrs().get("tube_length");
+        if (tubeLengthAttr != null) {
+            tubeLengthAttr.updateValue(deviceConfig.getTubeLength(), AttributeStatus.NORMAL);
+        }
+        NumericAttribute tubeDiameterAttr = (NumericAttribute) getAttrs().get("tube_inner_diameter");
+        if (tubeDiameterAttr != null) {
+            tubeDiameterAttr.updateValue(deviceConfig.getTubeInnerDiameter(), AttributeStatus.NORMAL);
+        }
+
+        ModbusScalableFloatSRAttribute flowRateAttr = (ModbusScalableFloatSRAttribute) getAttrs().get("gas_flow_rate");
+        NumericAttribute volumeFlowAttr = (NumericAttribute) getAttrs().get("sample_tube_volume_flow");
+        if (flowRateAttr == null || volumeFlowAttr == null) {
+            return;
+        }
+        double volumeFlow = 0.0; // 采样管流量（L/min）默认值
+        AttrState<?> flowState = flowRateAttr.getState();
+        Float flowVelocity = flowState != null ? (Float) flowState.getValue() : null;
+        if (flowVelocity == null || flowVelocity <= 0) {
+            log.warn("样气流速为0或null，无效，无法计算采样管流量，置0");
+        } else {
+            // 流量(L/min) = 截面积(m²) × 流速(m/s) × 60000；截面积 = π × 内径(m)² / 4
+            double innerDiameter = deviceConfig.getTubeInnerDiameter();
+            double crossSectionArea = Math.PI * innerDiameter * innerDiameter / 4.0;
+            volumeFlow = crossSectionArea * flowVelocity * 60000.0;
+        }
+        volumeFlowAttr.updateValue(volumeFlow, AttributeStatus.NORMAL);
+    }
+
+    /**
      * 读取所有寄存器并解析数据
      */
     CompletableFuture<Boolean> readRegisters(ModbusSource source) {
@@ -332,6 +373,7 @@ public class SampleTube extends SmsDeviceBase {
                     try {
                         short[] registers = response.getShortData();
                         parseRegisters(registers);
+                        updateCalulateAttr();
                         getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.NORMAL));
                         publicAttrsState();
                         return true;

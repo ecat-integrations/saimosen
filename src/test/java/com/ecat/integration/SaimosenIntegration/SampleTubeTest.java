@@ -507,9 +507,10 @@ public class SampleTubeTest {
         assertTrue("加热带功率属性应该存在", attrs.containsKey("heating_belt_power"));
         assertTrue("未使用字段9应该存在", attrs.containsKey("reserved_9"));
         assertTrue("加热管设置温度属性应该存在", attrs.containsKey("heating_tube_target_temp"));
+        assertTrue("采样管流量属性应该存在", attrs.containsKey("sample_tube_volume_flow"));
 
-        // 验证属性总数（11个寄存器对应11个属性 + 2个配置属性 tube_length/tube_inner_diameter）
-        assertEquals("应该有13个属性", 13, attrs.size());
+        // 验证属性总数（11个寄存器对应11个属性 + 2个配置属性 tube_length/tube_inner_diameter + 1个派生属性 sample_tube_volume_flow）
+        assertEquals("应该有14个属性", 14, attrs.size());
     }
 
     @Test
