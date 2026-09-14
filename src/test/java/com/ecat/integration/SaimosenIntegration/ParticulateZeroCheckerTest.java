@@ -1,6 +1,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
@@ -64,7 +65,7 @@ public class ParticulateZeroCheckerTest {
 
         // mock modbusSource 的 acquire() 函数
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
 
         // // mock readHoldingRegisters
         // ReadHoldingRegistersResponse mockReadResp = mock(ReadHoldingRegistersResponse.class);
@@ -221,7 +222,9 @@ public class ParticulateZeroCheckerTest {
     @Test
     public void testRelease() throws Exception {
         checker.release();
-        verify(mockModbusSource, never()).closeModbus();
+        // source 经反射注入（init 跳过 register）：本测无 RemovalHost 绑定，源关闭契约不在本测范围——
+        // 钉住测试缝契约：register 不被调（注入源即免注册）
+        verify(mockModbusIntegration, never()).register(any(), any(RemovalHost.class));
     }
 
 

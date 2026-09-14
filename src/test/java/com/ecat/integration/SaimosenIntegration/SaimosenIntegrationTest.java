@@ -2,6 +2,7 @@ package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.ConfigFlow.AbstractConfigFlow;
+import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.Integration.IntegrationManager;
 import com.ecat.core.EcatCore;
@@ -549,12 +550,12 @@ public class SaimosenIntegrationTest {
             ModbusIntegration mockModbusIntegration = mock(ModbusIntegration.class);
             ModbusSource mockModbusSource = mock(ModbusSource.class);
             when(mockRegistry.getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-            when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
+            when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
 
             SerialIntegration mockSerialIntegration = mock(SerialIntegration.class);
             SerialSource mockSerialSource = mock(SerialSource.class);
             when(mockRegistry.getIntegration("integration-serial")).thenReturn(mockSerialIntegration);
-            when(mockSerialIntegration.register(any(), anyString())).thenReturn(mockSerialSource);
+            when(mockSerialIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockSerialSource);
             when(mockSerialSource.getTimeout()).thenReturn(500);
 
             com.ecat.core.Task.TaskManager mockTaskManager = mock(com.ecat.core.Task.TaskManager.class);
@@ -603,7 +604,7 @@ public class SaimosenIntegrationTest {
 
             com.ecat.integration.ModbusIntegration.ModbusSource mockModbusSource =
                 mock(com.ecat.integration.ModbusIntegration.ModbusSource.class);
-            when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
+            when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
 
             com.ecat.core.Task.TaskManager mockTaskManager = mock(com.ecat.core.Task.TaskManager.class);
             when(mockCore.getTaskManager()).thenReturn(mockTaskManager);

@@ -186,16 +186,15 @@ public abstract class SmsDeviceBase extends DeviceBase {
     public void init() {
         // 如果 modbusSource 已经设置（测试场景），则跳过注册
         if (modbusSource == null) {
-            modbusSource = modbusIntegration.register(modbusInfo, this.getClass().getName() + "-" + getId());
+            modbusSource = modbusIntegration.register(modbusInfo, this);
         }
     }
 
     @Override
     public void release() {
-        if (modbusSource != null && modbusSource.isModbusOpen()) {
-            modbusSource.closeModbus();
-            log.info("Modbus closed for device " + getId() + ": " + modbusSource.getModbusInfo());
-        }
+        // 源关闭已由 register(modbusInfo, this) 注册期绑定 RemovalHost（stopWithManagedSweep LIFO 收口，
+        // 晚于轮询停），release 仅清引用，不再手工 closeModbus
+        modbusSource = null;
     }
 
     /**

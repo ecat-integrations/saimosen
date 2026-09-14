@@ -589,7 +589,7 @@ public class QCDevice extends SmsDeviceBase {
     /**
      * 定时读取Modbus寄存器数据（SDK 单事务 round：两块读在同源锁内 FIFO 串行，
      * 块间 1s 节拍保留——设备性能要求。旧形态为两笔独立事务在 1s 定时到点
-     * 盲发第二笔，块一未完成时第二笔 tryAcquire 必锁忙静默缺失（wit-motion 同型缺陷），
+     * 盲发第二笔，块一未完成时第二笔非阻塞取锁必锁忙静默缺失（wit-motion 同型缺陷），
      * 合并后天然串行不再互踩）
      */
     protected CompletableFuture<Boolean> readRegisters(ModbusPolling polling, ModbusSource source) {

@@ -3,6 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -22,6 +24,7 @@ import org.mockito.MockitoAnnotations;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.Integration.IntegrationRegistry;
@@ -35,7 +38,7 @@ import com.ecat.integration.ModbusIntegration.Sdk.RoundReport;
 /**
  * 轮询锁忙降级回归锁（F-23 A 片，ModbusPolling SDK 形态）。
  *
- * <p>源锁忙（tryAcquire 返回 null）时 SDK 轮询必须：本轮立即放弃不发任何 Modbus 读
+ * <p>源锁忙（acquirePollingBounded 预算耗尽弃轮，null 完成→LockBusySkippedException）时 SDK 轮询必须：本轮立即放弃不发任何 Modbus 读
  * （区别于事务失败重试）、以 LOCK_BUSY_SKIPPED 结局报告（跳拍非设备错误，不走 FAILED）、
  * 轮询不注销（周期网格照常推进）。轮询链由域自持定时器驱动（与生产同源）；
  * 确定性同步 = onRound 六分类 latch，无 sleep。
@@ -76,7 +79,7 @@ public class PollingLockBusySkipTest {
 
         mockModbusSource = mock(ModbusSource.class);
         ModbusIntegration mockModbusIntegration = mock(ModbusIntegration.class);
-        when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
 
         EcatCore mockCore = mock(EcatCore.class);
         TaskManager mockTaskManager = mock(TaskManager.class);
@@ -107,7 +110,7 @@ public class PollingLockBusySkipTest {
 
     @Test
     public void lockBusyPollRoundSkipsFastWithoutSending() throws Exception {
-        when(mockModbusSource.tryAcquire()).thenReturn(null);
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         // LOCK_BUSY_SKIPPED 六分类 latch：跳拍即证据（毫秒级结算、非 FAILED 错误链）
         final CountDownLatch twoSkips = new CountDownLatch(2);

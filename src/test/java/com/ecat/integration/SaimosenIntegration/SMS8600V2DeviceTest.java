@@ -1,6 +1,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
@@ -37,7 +38,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 /**
@@ -101,7 +102,7 @@ public class SMS8600V2DeviceTest {
         setPrivateField(sms8600v2Device, "core", mockEcatCore);
         setPrivateField(sms8600v2Device, "serialSource", mockSerialSource);
         setPrivateField(sms8600v2Device, "serialIntegration", mockSerialIntegration);
-        when(mockSerialIntegration.register(any(), anyString())).thenReturn(mockSerialSource);
+        when(mockSerialIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockSerialSource);
         when(mockSerialSource.getPortName()).thenReturn("/dev/ttyUSB0");   // 域自持周期链链名（29 号 v2 S1）：mock 默认 null 须补
         when(mockSerialSource.getTimeout()).thenReturn(500);
 
@@ -217,7 +218,7 @@ public class SMS8600V2DeviceTest {
         setPrivateField(sms8600v2Device, "core", mockEcatCore);
         setPrivateField(sms8600v2Device, "serialSource", mockSerialSource);
         setPrivateField(sms8600v2Device, "serialIntegration", mockSerialIntegration);
-        when(mockSerialIntegration.register(any(), anyString())).thenReturn(mockSerialSource);
+        when(mockSerialIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockSerialSource);
         when(mockSerialSource.getTimeout()).thenReturn(500);
         setPrivateField(sms8600v2Device, "responseHandlerStrategy", mockResponseHandlerStrategy);
     }
@@ -305,7 +306,7 @@ public class SMS8600V2DeviceTest {
         // 18 号迁移后句柄不经设备持有（SDK 内绑 onRemove）：以 round 入口探针证轮询已注册运行
         CountDownLatch firstRound = pollingRoundProbe(1);
         sms8600v2Device.start();
-        assertTrue("start 后首轮轮询必须发起（探针=executePolling 首访 tryAcquire）",
+        assertTrue("start 后首轮轮询必须发起（探针=executePolling 首访 acquirePollingBounded）",
                 firstRound.await(8, TimeUnit.SECONDS));
     }
 
@@ -344,7 +345,8 @@ public class SMS8600V2DeviceTest {
 
         assertFalse("release+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）",
                 nextRound.await(300, TimeUnit.MILLISECONDS));
-        verify(mockSerialSource, times(1)).closePort();
+        // 源释放语义按真相源形态迁移：钉住 register 第二参 = 设备自身（RemovalHost 收口接线）
+        verify(mockSerialIntegration, times(1)).register(any(), same(sms8600v2Device));
     }
 
     @Test
@@ -1190,12 +1192,12 @@ public class SMS8600V2DeviceTest {
     }
     // ==================== 轮询观测垫片（18 号迁移：句柄字段已删，经 round 入口探针观测） ====================
 
-    /** round 入口探针：executePolling 每轮首访 tryAcquire——返回 null=锁忙跳过（零业务副作用）。 */
+    /** round 入口探针：executePolling 每轮首访 acquirePollingBounded——null 完成=锁忙跳过（零业务副作用）。 */
     private CountDownLatch pollingRoundProbe(int rounds) {
         CountDownLatch latch = new CountDownLatch(rounds);
-        when(mockSerialSource.tryAcquire()).thenAnswer(inv -> {
+        when(mockSerialSource.acquirePollingBounded(anyLong())).thenAnswer(inv -> {
             latch.countDown();
-            return null;
+            return CompletableFuture.completedFuture(null);
         });
         return latch;
     }

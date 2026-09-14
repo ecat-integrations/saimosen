@@ -1,6 +1,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -66,8 +68,8 @@ public class SO2DeviceTest {
         
         // 先设置所有mock
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
-        when(mockModbusIntegration.register(any(), any())).thenReturn(mockModbusSource);
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
 
         TaskManager mockTaskManager = mock(TaskManager.class);
         when(mockEcatCore.getTaskManager()).thenReturn(mockTaskManager);
@@ -315,7 +317,6 @@ public class SO2DeviceTest {
     
     @Test
     public void testRelease_CancelsReadFuture() throws Exception {
-        when(mockModbusSource.isModbusOpen()).thenReturn(true);
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
         so2Device.pollPeriodMs = 150L;
@@ -328,7 +329,9 @@ public class SO2DeviceTest {
         probe.armStrayDetector();
         assertFalse("release 前 stop+sweep 后不得再发起新一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(300, TimeUnit.MILLISECONDS));
         so2Device.release();
-        verify(mockModbusSource).closeModbus();
+        // source 经注入（init 跳过 register）：本测 register 零调用；源关闭由生产 register 期
+        // RemovalHost 绑定接管，不在本测范围——钉住注入缝契约
+        verify(mockModbusIntegration, never()).register(any(), any(RemovalHost.class));
     }
     
     @Test
@@ -566,7 +569,6 @@ public class SO2DeviceTest {
     @Test
     public void testDeviceLifecycle() throws Exception {
         // 测试完整的设备生命周期
-        when(mockModbusSource.isModbusOpen()).thenReturn(true);
 
         // 1. 初始化
         so2Device.init();

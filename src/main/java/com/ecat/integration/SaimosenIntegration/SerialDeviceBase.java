@@ -84,7 +84,7 @@ public abstract class SerialDeviceBase extends DeviceBase {
 
     @Override
     public void init() {
-        serialSource = SerialDeviceBase.serialIntegration.register(serialInfo, this.getClass().getName());
+        serialSource = SerialDeviceBase.serialIntegration.register(serialInfo, this);
     }
     @Override
     public void stop() {
@@ -93,15 +93,9 @@ public abstract class SerialDeviceBase extends DeviceBase {
     }
     @Override
     public void release() {
-        stop();
-        if (serialSource != null) {
-            try {
-                serialSource.closePort();
-                log.info("Serial port closed for device " + config.get("id") + ": " + serialSource.getSystemPortName());
-            } catch (Exception e) {
-                log.warn("Error closing serial port for device {}: {}", config.get("id"), e.getMessage());
-            }
-        }
+        // 源关闭已由 register(serialInfo, this) 注册期绑定 RemovalHost（stopWithManagedSweep LIFO 收口，
+        // 晚于轮询停），release 仅清引用，不再手工 closePort
+        serialSource = null;
     }
 
     protected String checkReadBuffer(String response) {

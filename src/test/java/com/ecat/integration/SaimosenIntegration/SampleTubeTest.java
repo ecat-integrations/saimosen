@@ -3,7 +3,7 @@ package com.ecat.integration.SaimosenIntegration;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 import java.util.HashMap;
@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
 import com.ecat.core.Bus.event.BusEvent;
@@ -70,7 +71,7 @@ public class SampleTubeTest {
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
         when(mockCore.getTaskManager()).thenReturn(mock(TaskManager.class));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -187,9 +188,9 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -211,10 +212,10 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         when(mockCore.getTaskManager()).thenReturn(mock(TaskManager.class));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -263,9 +264,9 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         // 模拟读取响应（根据新协议，共11个寄存器）
         short[] mockData = new short[11];
@@ -285,7 +286,7 @@ public class SampleTubeTest {
         when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
                 .thenReturn(CompletableFuture.completedFuture(mockReadResponse));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         mockBusRegistry = mock(BusRegistry.class);
         doNothing().when(mockBusRegistry).publish(any(BusEvent.class));
@@ -312,7 +313,7 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         // 确定性同步（替代 sleep）：写事务体在调用线程内联执行（executeHeld 内
         // lambda.apply 直发），latch 挂 writeRegister 入口——验证「写已发生」而非睡后猜测
         CountDownLatch writeDone = new CountDownLatch(1);
@@ -322,7 +323,7 @@ public class SampleTubeTest {
                     return CompletableFuture.completedFuture(mockWriteResponse);
                 });
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -348,7 +349,7 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         // 确定性同步（替代 sleep）：latch 挂 writeRegister 入口，验证「写已发生」
         CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
@@ -357,7 +358,7 @@ public class SampleTubeTest {
                     return CompletableFuture.completedFuture(mockWriteResponse);
                 });
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -380,7 +381,7 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         // 确定性同步（替代 sleep）：latch 挂 writeRegister 入口，验证「写已发生」
         CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
@@ -389,7 +390,7 @@ public class SampleTubeTest {
                     return CompletableFuture.completedFuture(mockWriteResponse);
                 });
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -414,7 +415,7 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         // 确定性同步（替代 sleep）：latch 挂 writeRegister 入口，验证「写已发生」
         CountDownLatch writeDone = new CountDownLatch(1);
         when(mockModbusSource.writeRegister(anyInt(), anyInt()))
@@ -423,7 +424,7 @@ public class SampleTubeTest {
                     return CompletableFuture.completedFuture(mockWriteResponse);
                 });
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -445,11 +446,10 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         when(mockCore.getTaskManager()).thenReturn(mock(TaskManager.class));
-        when(mockModbusSource.isModbusOpen()).thenReturn(true);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -474,8 +474,9 @@ public class SampleTubeTest {
         assertFalse("release 前 stop+sweep 后不得再发起下一轮（容至多 1 个 stop 前在飞轮迟到入口，阈值 2）", probe.strayRound.await(300, TimeUnit.MILLISECONDS));
         sampleTube.release();
 
-        // 验证资源释放
-        verify(mockModbusSource, times(1)).closeModbus();
+        // source 经注入（init 跳过 register）：本测 register 零调用；源关闭由生产 register 期
+        // RemovalHost 绑定接管，不在本测范围——钉住注入缝契约
+        verify(mockModbusIntegration, never()).register(any(), any(RemovalHost.class));
     }
 
     @Test
@@ -483,9 +484,9 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -518,7 +519,7 @@ public class SampleTubeTest {
         // 模拟Core和Integration
         when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
         when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-        when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+        when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
 
         // 模拟读取失败
         when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
@@ -526,7 +527,7 @@ public class SampleTubeTest {
                     throw new RuntimeException("通信失败");
                 }));
         when(mockModbusSource.acquire()).thenReturn("testKey");
-        when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+        when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
         sampleTube.load(mockCore);
         sampleTube.init();
@@ -557,9 +558,9 @@ public class SampleTubeTest {
             // 模拟Core和Integration
             when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
             when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-            when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+            when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
             when(mockModbusSource.acquire()).thenReturn("testKey");
-            when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+            when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
             sampleTube.load(mockCore);
             sampleTube.init();
@@ -595,9 +596,9 @@ public class SampleTubeTest {
             // 模拟Core和Integration
             when(mockCore.getIntegrationRegistry()).thenReturn(mock(com.ecat.core.Integration.IntegrationRegistry.class));
             when(mockCore.getIntegrationRegistry().getIntegration("integration-modbus")).thenReturn(mockModbusIntegration);
-            when(mockModbusIntegration.register(any(), anyString())).thenReturn(mockModbusSource);
+            when(mockModbusIntegration.register(any(), any(RemovalHost.class))).thenReturn(mockModbusSource);
             when(mockModbusSource.acquire()).thenReturn("testKey");
-            when(mockModbusSource.tryAcquire()).thenReturn("testKey");
+            when(mockModbusSource.acquirePollingBounded(anyLong())).thenReturn(CompletableFuture.completedFuture("testKey"));
 
             sampleTube.load(mockCore);
             sampleTube.init();
