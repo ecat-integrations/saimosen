@@ -127,7 +127,7 @@ public class O3Device extends SmsDeviceBase {
                 "ref_volt", AttributeClass.VOLTAGE, VoltageUnit.MILLIVOLT, VoltageUnit.MILLIVOLT,
                 2, false, false));
         setAttribute(new NumericAttribute(
-                "sample_press", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                "sample_press", AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "sample_temp", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS,
@@ -136,7 +136,7 @@ public class O3Device extends SmsDeviceBase {
                 "sample_flow", AttributeClass.FLOW, LiterFlowUnit.ML_PER_MINUTE, LiterFlowUnit.ML_PER_MINUTE,
                 2, false, false));
         setAttribute(new NumericAttribute(
-                "pump_press", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                "pump_press", AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, false, false));
         setAttribute(new ModbusFloatAttribute(
                 "slope", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
@@ -145,10 +145,10 @@ public class O3Device extends SmsDeviceBase {
                 "intercept", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 3, false, true, modbusSource, (short) 16, o3FloatEndian));
         setAttribute(new ModbusFloatAttribute(
-                "sample_press_corr", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                "sample_press_corr", AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, true, true, modbusSource, (short) 18, o3FloatEndian));
         setAttribute(new ModbusFloatAttribute(
-                "pump_press_corr", AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                "pump_press_corr", AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, true, true, modbusSource, (short) 20, o3FloatEndian));
         setAttribute(new ModbusFloatAttribute(
                 "sample_temp_corr", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS,

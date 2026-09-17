@@ -116,7 +116,7 @@ public class SO2Device extends SmsDeviceBase {
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "sample_press",
-                AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "chamber_temp",
@@ -128,7 +128,7 @@ public class SO2Device extends SmsDeviceBase {
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "pump_press",
-                AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "sample_temp",
@@ -148,11 +148,11 @@ public class SO2Device extends SmsDeviceBase {
                 3, false, false));
         setAttribute(new NumericAttribute(
                 "sample_press_corr",
-                AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "pump_press_corr",
-                AttributeClass.PRESSURE, PressureUnit.PA, PressureUnit.PA,
+                AttributeClass.PRESSURE, PressureUnit.KPA, PressureUnit.KPA,
                 2, false, false));
         setAttribute(new NumericAttribute(
                 "chamber_temp_corr",

@@ -93,10 +93,10 @@ Float 类型参数占 **2 个连续寄存器**，编码为 **BADC 字序**（`co
 | 属性 ID | 名称 | 起始地址(Dec) | 起始地址(Hex) | 类型 | 寄存器数 | 单位 |
 |---------|------|---------------|---------------|------|----------|------|
 | measure_volt | 测量电压 | 0 | 0x0000 | Float | 2 | mV |
-| sample_press | 样气压力 | 2 | 0x0002 | Float | 2 | Pa |
+| sample_press | 样气压力 | 2 | 0x0002 | Float | 2 | kPa |
 | chamber_temp | 反应室温度 | 4 | 0x0004 | Float | 2 | °C |
 | sample_flow | 样气流量 | 6 | 0x0006 | Float | 2 | mL/min |
-| pump_press | 泵压力 | 8 | 0x0008 | Float | 2 | Pa |
+| pump_press | 泵压力 | 8 | 0x0008 | Float | 2 | kPa |
 | sample_temp | 样气温度 | 10 | 0x000A | Float | 2 | °C |
 | slope | 浓度斜率 | 14 | 0x000E | Float | 2 | — |
 | intercept | 浓度截距 | 16 | 0x0010 | Float | 2 | — |

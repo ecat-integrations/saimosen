@@ -13,6 +13,7 @@ import com.ecat.core.State.BinaryAttribute;
 import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.TextAttribute;
+import com.ecat.core.State.Unit.PressureUnit;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Integration.IntegrationRegistry;
 import com.ecat.core.Utils.TestTools;
@@ -273,7 +274,23 @@ public class SO2DeviceTest {
         // 验证属性总数
         assertEquals("应该有43个属性", 43, so2Device.getAttrs().size());
     }
-    
+
+    /**
+     * 样气/泵压力是设备上报的浮点压力值，单位应为 kPa
+     */
+    @Test
+    public void testPressureAttributesUseKpaUnit() throws Exception {
+        so2Device.init();
+
+        String[] pressureAttrIds = {"sample_press", "pump_press", "sample_press_corr", "pump_press_corr"};
+        for (String attrId : pressureAttrIds) {
+            AttributeBase<?> attr = so2Device.getAttrs().get(attrId);
+            assertNotNull("属性 " + attrId + " 应该存在", attr);
+            assertEquals("属性 " + attrId + " 原始单位应为 kPa", PressureUnit.KPA, attr.getNativeUnit());
+            assertEquals("属性 " + attrId + " 显示单位应为 kPa", PressureUnit.KPA, attr.getDisplayUnit());
+        }
+    }
+
     @Test
     public void testStart_SchedulesReadTask() throws Exception {
         CountDownLatch firstRead = new CountDownLatch(1);
