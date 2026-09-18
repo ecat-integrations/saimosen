@@ -107,8 +107,10 @@ public abstract class SerialDeviceBase extends DeviceBase {
 
     protected byte[] checkByteResponse(byte[] buffer) {
         // $ 对应的ASCII字节是 0x24，判断是否以 $ 结束
+        // null/空缓冲=帧未组完，返回 null 继续等：legacy 轮询以「非 null」判定帧完整，
+        // 空 byte[0] 会被当完整帧交付成空响应（2026-09-18 运行期重加全离线事故第二层根因）
         if (buffer == null || buffer.length == 0) {
-            return new byte[0];
+            return null;
         }
 
         // 获取最后一个字节，判断是否是 $
@@ -117,7 +119,7 @@ public abstract class SerialDeviceBase extends DeviceBase {
             // 以 $ 结尾，返回完整数据
             return buffer;
         } else {
-            // 不是以 $ 结尾，返回空数组表示不完整
+            // 不是以 $ 结尾，返回 null 表示不完整
             return null;
         }
     }

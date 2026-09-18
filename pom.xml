@@ -42,6 +42,23 @@
   </dependencies>
   <build>
     <plugins>
+      <!-- 测试 JVM 显式声明测试模式。serial 应答策略为双读法：生产=中断驱动监听，
+           测试=legacy 轮询，模式只能由显式声明选择——旧的构造期栈扫描猜测已删除
+           （Spring 反射分发栈恒含 sun.reflect 帧，会把运行期经 ASM/ADM/REST 创建的
+           设备误判成测试环境静默降级 legacy，2026-09-18 saimosen v2 运行期重加
+           全离线事故）。本仓测试 mock 了串口源（mockito-inline 直接改写原类字节码，
+           mock 对象无任何标记），不声明 test.mode 则设备策略走生产中断模式，
+           stub 的轮询读路径永远无人读（全量 reactor 曾因此翻车）。生产 JVM
+           永不设置此属性，本声明只作用于 surefire 测试 JVM -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <test.mode>true</test.mode>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
