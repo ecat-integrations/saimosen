@@ -21,7 +21,9 @@ import com.ecat.core.ConfigFlow.ConfigItem.AbstractConfigItem;
 import com.ecat.core.ConfigFlow.ConfigFlowResult;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.ConfigFlow.FlowContext;
+import com.ecat.integration.SerialIntegration.ConfigSchemas.SerialCommConfigSchema;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -52,9 +54,16 @@ public class SaimosenConfigFlowTest {
 
     @Before
     public void setUp() {
+        SerialCommConfigSchema.setTestPortSupplier(
+                () -> SerialCommConfigSchema.createTestPorts("COM1"));
         flow = new SaimosenConfigFlow();
         ctx = flow.getContext();
         ctx.setCoordinate("com.ecat:integration-saimosen");
+    }
+
+    @After
+    public void tearDown() {
+        SerialCommConfigSchema.clearTestPortSupplier();
     }
 
     /** 从 schema 定位指定 key 的字段 */
@@ -139,4 +148,73 @@ public class SaimosenConfigFlowTest {
     // ===== import payload 校验 SN 非空 =====
 
     // testImportFlow_EmptySn_Aborts 已移除：IMPORT_FLOW handler 删除（P2.1），该入口不再存在。
+
+    // ===== 四气态通讯步预填从站号（CO=1 / NO2=2 / O3=3 / SO2=4） =====
+
+    @Test
+    public void testCommConfig_PrefillsSlaveId_So2() {
+        ConfigFlowResult result = walkToRtuCommConfig("air.monitor.so2", "SMS8200", "SO2-SID");
+        assertEquals("comm_config", result.getStepId());
+        assertEquals(4.0, findField(result.getSchema(), "slave_id").getDefaultValue());
+    }
+
+    @Test
+    public void testCommConfig_PrefillsSlaveId_Co() {
+        ConfigFlowResult result = walkToRtuCommConfig("air.monitor.co", "SMS8500", "CO-SID");
+        assertEquals(1.0, findField(result.getSchema(), "slave_id").getDefaultValue());
+    }
+
+    @Test
+    public void testCommConfig_PrefillsSlaveId_O3() {
+        ConfigFlowResult result = walkToRtuCommConfig("air.monitor.o3", "SMS8400", "O3-SID");
+        assertEquals(3.0, findField(result.getSchema(), "slave_id").getDefaultValue());
+    }
+
+    @Test
+    public void testCommConfig_PrefillsSlaveId_No2() {
+        ConfigFlowResult result = walkToRtuCommConfig("air.monitor.no2", "SMS8300", "NO2-SID");
+        assertEquals(2.0, findField(result.getSchema(), "slave_id").getDefaultValue());
+    }
+
+    @Test
+    public void testCommConfig_PersistsDefaultSlaveId_WhenOmitted() {
+        walkToRtuCommConfig("air.monitor.so2", "SMS8200", "SO2-SID");
+        ConfigFlowResult result = flow.handleStep("comm_config", rtuCommInputWithoutSlave());
+        assertEquals("final_confirm", result.getStepId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> comm = (Map<String, Object>) ctx.getEntryData().get("comm_settings");
+        assertEquals("省略从站号时应写入协议默认值，而不是 null", 4, comm.get("slave_id"));
+    }
+
+    @Test
+    public void testTcpCommConfig_PrefillsSlaveId_So2() {
+        flow.executeUserStep(input("welcome", "ok"));
+        flow.handleStep("device_config",
+            input("class_type_label", "说明", "class", "air.monitor.so2", "sn", "SO2-TCP"));
+        flow.handleStep("device_mode_config", input("model", "SMS8200", "name", "SO2 TCP"));
+        ConfigFlowResult result = flow.handleStep("protocol_select", input("modbus_protocol", "TCP"));
+        assertEquals("comm_config", result.getStepId());
+        assertEquals(4.0, findField(result.getSchema(), "slave_id").getDefaultValue());
+    }
+
+    private ConfigFlowResult walkToRtuCommConfig(String deviceClass, String model, String sn) {
+        flow.executeUserStep(input("welcome", "ok"));
+        flow.handleStep("device_config",
+            input("class_type_label", "说明", "class", deviceClass, "sn", sn));
+        flow.handleStep("device_mode_config", input("model", model, "name", "测试设备"));
+        return flow.handleStep("protocol_select", input("modbus_protocol", "RTU"));
+    }
+
+    private Map<String, Object> rtuCommInputWithoutSlave() {
+        Map<String, Object> serial = new HashMap<>();
+        serial.put("serial_port", "COM1");
+        serial.put("baudrate", "9600");
+        serial.put("data_bits", "8");
+        serial.put("stop_bits", "1");
+        serial.put("parity", "None");
+        serial.put("timeout", 2000.0);
+        Map<String, Object> comm = new HashMap<>();
+        comm.put("serial_settings", serial);
+        return comm;
+    }
 }

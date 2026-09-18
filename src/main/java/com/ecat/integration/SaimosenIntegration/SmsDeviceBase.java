@@ -102,8 +102,9 @@ public abstract class SmsDeviceBase extends DeviceBase {
         Integer baudRate = parseNumeric(serialSettings, "baudrate", 9600);
         Integer dataBits = parseNumeric(serialSettings, "data_bits", 8);
         Integer stopBits = parseNumeric(serialSettings, "stop_bits", 1);
-        Integer timeout = parseNumeric(serialSettings, "timeout", 2000);
-        Integer slaveId = parseNumeric(commSettings, "slave_id", 1);
+        Integer timeout = parseNumeric(serialSettings, "timeout", 1500);
+        Integer slaveId = parseNumeric(commSettings, "slave_id",
+                SaimosenIntegration.defaultModbusSlaveId((String) config.get("class")));
 
         // 解析校验位（新 Schema 使用 NONE/ODD/EVEN，兼容旧值 N/E/O）
         int parity;
@@ -152,7 +153,8 @@ public abstract class SmsDeviceBase extends DeviceBase {
     private void parseTcpCommSettings(Map<String, Object> commSettings) {
         String ipAddress = (String) commSettings.get("ip_address");
         int port = parseNumeric(commSettings, "port", 502);
-        int slaveId = parseNumeric(commSettings, "slave_id", 1);
+        int slaveId = parseNumeric(commSettings, "slave_id",
+                SaimosenIntegration.defaultModbusSlaveId((String) config.get("class")));
         String tcpProtocol = (String) commSettings.getOrDefault("tcp_protocol", "TCP");
         ModbusProtocol protocol = "RTU_OVER_TCP".equals(tcpProtocol)
             ? ModbusProtocol.RTU_OVER_TCP : ModbusProtocol.TCP;

@@ -268,18 +268,17 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     }
 
     private ConfigFlowResult stepCommConfig(Map<String, Object> userInput) {
-        if (userInput == null || userInput.isEmpty()) {
-            // 根据已选择的协议类型显示对应 Schema
-            String protocol = (String) context.getEntryData().getOrDefault("modbus_protocol", "RTU");
-            return showForm("comm_config", createCommConfigSchema(protocol), new HashMap<>());
-        }
         String protocol = (String) context.getEntryData().getOrDefault("modbus_protocol", "RTU");
         ConfigSchema schema = createCommConfigSchema(protocol);
+        if (userInput == null || userInput.isEmpty()) {
+            return showForm("comm_config", schema, new HashMap<>());
+        }
+        applyDefaultSlaveIdIfAbsent(userInput);
         Map<String, Object> errors = schema.validate(userInput);
         if (!errors.isEmpty()) {
             return showForm("comm_config", schema, errors);
         }
-        context.getEntryData().put("comm_settings", userInput);
+        persistCommSettings(userInput);
         return showForm("final_confirm", createFinalConfirmSchema(), new HashMap<>());
     }
 
@@ -428,18 +427,88 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     }
 
     /**
-     * 根据协议类型创建通讯配置 Schema
+     * 根据协议类型创建通讯配置 Schema。
+     * 四气态按机型预填从站号（CO=1 / NO₂=2 / O₃=3 / SO₂=4），reconfigure 时优先回显已保存值。
      *
      * @param protocol 协议类型 ("RTU" 或 "TCP")
      * @return 对应的通讯配置 Schema
      */
     private ConfigSchema createCommConfigSchema(String protocol) {
+        double slaveId = resolveSlaveIdDefaultForForm();
         if ("TCP".equals(protocol)) {
-            return new ModbusTcpCommConfigSchema().createSchema();
-        } else {
-            // 默认 RTU
-            return new ModbusRtuCommConfigSchema().createSchema();
+            return ModbusTcpCommConfigSchema.builder()
+                .slaveId(slaveId)
+                .build()
+                .createSchema();
         }
+        return ModbusRtuCommConfigSchema.builder()
+            .slaveId(slaveId)
+            .build()
+            .createSchema();
+    }
+
+    private double resolveSlaveIdDefaultForForm() {
+        Integer existing = parseSlaveId(existingCommSlaveId());
+        if (existing != null) {
+            return existing.doubleValue();
+        }
+        return protocolDefaultSlaveId();
+    }
+
+    private int protocolDefaultSlaveId() {
+        return SaimosenIntegration.defaultModbusSlaveId(
+            (String) context.getEntryData().get("class"));
+    }
+
+    private Object existingCommSlaveId() {
+        Object comm = context.getEntryData().get("comm_settings");
+        if (comm instanceof Map) {
+            Map<?, ?> commMap = (Map<?, ?>) comm;
+            Object sid = commMap.get("slave_id");
+            return sid != null ? sid : commMap.get("slaveId");
+        }
+        return null;
+    }
+
+    private static Integer parseSlaveId(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number) {
+            return ((Number) v).intValue();
+        }
+        String s = v.toString().trim();
+        if (s.isEmpty()) {
+            return null;
+        }
+        try {
+            return (int) Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static boolean isBlankSlaveId(Object v) {
+        return parseSlaveId(v) == null;
+    }
+
+    /** 提交时若未填从站号，写入机型默认值（整数），避免 YAML {@code slave_id: null}。 */
+    private void applyDefaultSlaveIdIfAbsent(Map<String, Object> userInput) {
+        if (isBlankSlaveId(userInput.get("slave_id")) && isBlankSlaveId(userInput.get("slaveId"))) {
+            userInput.put("slave_id", protocolDefaultSlaveId());
+        }
+    }
+
+    private void persistCommSettings(Map<String, Object> userInput) {
+        Object raw = userInput.get("slave_id");
+        if (raw == null) {
+            raw = userInput.get("slaveId");
+        }
+        Integer slaveId = parseSlaveId(raw);
+        if (slaveId != null) {
+            userInput.put("slave_id", slaveId);
+        }
+        context.getEntryData().put("comm_settings", userInput);
     }
 
     private ConfigSchema createFinalConfirmSchema() {

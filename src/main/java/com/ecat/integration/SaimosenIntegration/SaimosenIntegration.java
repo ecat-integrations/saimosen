@@ -213,4 +213,31 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         return MODEL_PROTOCOL_MAP.get(model);
     }
 
+    /**
+     * 配置向导回显与 YAML 省略 {@code comm_settings.slave_id} 时使用的协议默认 Modbus 从站号。
+     * <p>四气态现场约定：
+     * <ul>
+     *   <li>CO SMS8500 → 1</li>
+     *   <li>NOx SMS8300 → 2</li>
+     *   <li>O₃ SMS8400 → 3</li>
+     *   <li>SO₂ SMS8200 → 4</li>
+     * </ul>
+     * 其余机型（质控仪、校准仪、颗粒物、采样管、稳压电源等）仍为 1。
+     */
+    public static int defaultModbusSlaveId(String deviceClass) {
+        if (DeviceClasses.AIR_MONITOR_CO.getClassName().equals(deviceClass)) {
+            return 1;
+        }
+        if (DeviceClasses.AIR_MONITOR_NO2.getClassName().equals(deviceClass)) {
+            return 2;
+        }
+        if (DeviceClasses.AIR_MONITOR_O3.getClassName().equals(deviceClass)) {
+            return 3;
+        }
+        if (DeviceClasses.AIR_MONITOR_SO2.getClassName().equals(deviceClass)) {
+            return 4;
+        }
+        return 1;
+    }
+
 }
