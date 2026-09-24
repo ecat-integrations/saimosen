@@ -1,6 +1,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.DeviceStatus;
 import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
@@ -201,6 +202,67 @@ public class O3DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
         when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
             .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
+    @Test
+    public void testInstrumentStatus_WarmUpOverridesMeasure() throws Exception {
+        mockO3Poll(4, 0);
+
+        o3Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+
+        assertEquals(DeviceStatus.WARM_UP, o3Device.getDeviceStatus());
+        NumericAttribute o3Attr = (NumericAttribute) o3Device.getAttrs().get("o3");
+        assertEquals(AttributeStatus.WAITING, o3Attr.getState().getStatus());
+        verifyInstrumentStatus(SmsGasInstrumentStatus.WARM_UP, "热机");
+    }
+
+    @Test
+    public void testInstrumentStatus_DiagnosticOverridesSpanCalibration() throws Exception {
+        mockO3Poll(2, 2);
+
+        o3Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+
+        assertEquals(DeviceStatus.MAINTENANCE, o3Device.getDeviceStatus());
+        NumericAttribute o3Attr = (NumericAttribute) o3Device.getAttrs().get("o3");
+        assertEquals(AttributeStatus.MAINTENANCE, o3Attr.getState().getStatus());
+        verifyInstrumentStatus(SmsGasInstrumentStatus.DIAGNOSTIC, "诊断");
+    }
+
+    private void mockO3Poll(int instrumentStatus, int calibrationStatus) {
+        short[] mockFloatRegisters = new short[40];
+        short[] mockU16Registers = new short[18];
+        mockU16Registers[SmsGasInstrumentStatus.U16_INDEX] = (short) instrumentStatus;
+        short[] mockSpanCalibRegisters = new short[] {(short) 400};
+        short[] mockCalibRegisters = new short[] {(short) calibrationStatus};
+
+        ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockU16Response = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+
+        when(mockFloatResponse.getShortData()).thenReturn(mockFloatRegisters);
+        when(mockU16Response.getShortData()).thenReturn(mockU16Registers);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
+        when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
+
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0), eq(40)))
+                .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(40), eq(18)))
+                .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+                .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+                .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
+    }
+
+    private void verifyInstrumentStatus(String optionKey, String displayName) {
+        StringSelectAttribute attr = (StringSelectAttribute) o3Device.getAttrs().get("device_status");
+        assertNotNull(attr);
+        assertNotNull(attr.getState());
+        assertEquals(optionKey, attr.getState().getValue());
+        assertEquals(displayName, attr.getDisplayValue());
     }
 
     private void verifyFloatAttribute(String attrId, double expectedValue) {
@@ -431,7 +493,7 @@ public class O3DeviceTest {
         
         // 验证第二组参数（U16类型）- 这些是简单的整数，容易验证
         verifyFloatAttribute("device_address", 3.0);
-        verifyFloatAttribute("device_status", 0.0);
+        verifyInstrumentStatus(SmsGasInstrumentStatus.SAMPLE, "采样");
         verifyFloatAttribute("uv_amplification", 100.0);
         verifyFloatAttribute("sample_temp_volt", 250.0); // 2500/10
         verifyFloatAttribute("sample_press_volt", 300.0); // 3000/10
@@ -618,7 +680,7 @@ public class O3DeviceTest {
         
         // 验证属性更新
         verifyFloatAttribute("device_address", 100.0);
-        verifyFloatAttribute("device_status", 101.0);
+        verifyInstrumentStatus(SmsGasInstrumentStatus.UNKNOWN, "未知");
         verifyFloatAttribute("uv_amplification", 102.0);
     }
     

@@ -11,6 +11,7 @@ import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.TextAttribute;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.Unit.LiterFlowUnit;
@@ -183,9 +184,8 @@ public class O3Device extends SmsDeviceBase {
         setAttribute(new ModbusShortAttribute(
                 "device_address", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, true, modbusSource, (short) 40));
-        setAttribute(new ModbusShortAttribute(
-                "device_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true, modbusSource, (short) 41));
+        setAttribute(new StringSelectAttribute(
+                "device_status", AttributeClass.STATUS, false, SmsGasInstrumentStatus.options()));
         setAttribute(new ModbusShortAttribute(
                 "uv_amplification", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, true, modbusSource, (short) 42));
@@ -427,6 +427,7 @@ public class O3Device extends SmsDeviceBase {
 
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
                                    SegmentData spanCalibConcentration, SegmentData instrumentCalibStatus) {
+        applyInstrumentStatus(u16Data, instrumentCalibStatus);
         AttributeStatus autoStatus = mapToAttributeStatus(deviceStatus);
         if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
             autoStatus = AttributeStatus.MALFUNCTION;
@@ -472,7 +473,7 @@ public class O3Device extends SmsDeviceBase {
     private void updateU16Attributes(double[] values, AttributeStatus status) {
         // 根据O3设备协议，某些电压值需要除以10进行单位转换
         updateModbusShortAttribute("device_address", values[0], status);
-        updateModbusShortAttribute("device_status", values[1], status);
+        SmsGasInstrumentStatus.writeSelect(getAttrs().get("device_status"), (int) values[1], status);
         updateModbusShortAttribute("uv_amplification", values[2], status);
         updateAttribute("sample_temp_volt", values[3] / 10.0, status); // 除以10转换为mV
         updateAttribute("sample_press_volt", values[4] / 10.0, status); // 除以10转换为mV
@@ -534,19 +535,14 @@ public class O3Device extends SmsDeviceBase {
     }
 
     private AttributeStatus mapToAttributeStatus(DeviceStatus deviceStatus) {
-        switch (deviceStatus) {
-            case MEASURE:
-                return AttributeStatus.NORMAL;
-            case ZERO_CALIBRATION:
-                return AttributeStatus.ZERO_CALIBRATION;
-            case SPAN_CALIBRATION:
-                return AttributeStatus.SPAN_CALIBRATION;
-            case MAINTENANCE:
-                return AttributeStatus.MAINTENANCE;
-            case UNKNOWN:
-            default:
-                return AttributeStatus.EMPTY;
+        return SmsGasInstrumentStatus.toAttributeStatus(deviceStatus);
+    }
+
+    private void applyInstrumentStatus(SegmentData u16Data, SegmentData instrumentCalibStatus) {
+        if (u16Data == null || instrumentCalibStatus == null || u16Data.values.length <= SmsGasInstrumentStatus.U16_INDEX) {
+            return;
         }
+        deviceStatus = SmsGasInstrumentStatus.overlay(deviceStatus, (int) u16Data.values[SmsGasInstrumentStatus.U16_INDEX]);
     }
 
     private void updateAttribute(String attrName, double value, AttributeStatus status) {

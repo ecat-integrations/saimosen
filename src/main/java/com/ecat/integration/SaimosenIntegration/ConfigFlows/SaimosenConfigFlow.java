@@ -140,8 +140,13 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     private ConfigFlowResult stepDeviceModeConfig(Map<String, Object> userInput) {
         Map<String, Object> deviceClassData = getStepData("device_config");
         String deviceClass = (String) deviceClassData.get("class");
+        ConfigSchema modeSchema = createDeviceModeBasicSchema(deviceClass);
         if (userInput == null || userInput.isEmpty()) {
-            return showForm("device_mode_config", createDeviceModeBasicSchema(deviceClass), new HashMap<>());
+            return showForm("device_mode_config", modeSchema, new HashMap<>());
+        }
+        Map<String, Object> modeErrors = modeSchema.validate(userInput);
+        if (!modeErrors.isEmpty()) {
+            return showForm("device_mode_config", modeSchema, modeErrors);
         }
         // 将 model 和 name 保存到 entryData（此步骤的 schema 包含这两个字段）
         context.getEntryData().put("model", userInput.get("model"));
@@ -310,7 +315,9 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     private ConfigSchema createWelcomeSchema() {
         return new ConfigSchema()
             .addField(new TextConfigItem("welcome", false,
-                "欢迎使用 Saimosen 设备配置向导！\n\n本向导将帮助您配置 Saimosen 系列环境监测设备。\n支持 Modbus RTU (RS485) 和 Modbus TCP 协议。")
+                "欢迎使用 Saimosen 设备配置向导！\n\n本向导将帮助您配置 Saimosen 系列环境监测设备。\n"
+                        + "Modbus 机型支持 RTU (RS485) 和 TCP。\n"
+                        + "四气态 V2（SMS8200V2 / SMS8300V2 / SMS8400V2 / SMS8500V2）以及 SMS8600V2 使用串口 ASCII 协议。")
                 .displayName("欢迎"));
     }
 
@@ -414,13 +421,46 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
                             + "在 V1 全部参数基础上扩展智能稳压电源（233~273，含四路 U/I/P 及保护参数）。")
                     .displayName("质控仪协议版本说明"));
         }
+        if (isGasAnalyzer(deviceClass)) {
+            schema.addField(new TextConfigItem("gas_model_tip", false, gasModelTip(deviceClass))
+                    .displayName("气态协议版本说明"));
+        }
         return schema.addField(new EnumConfigItem("model", true)
                 .displayName("型号")
-                .addOptions(getDeviceModeOptions(deviceClass)))
+                .addOptions(getDeviceModeOptions(deviceClass))
+                .buildValidator())
                 .addField(new TextConfigItem("name", true)
                         .displayName("设备名称")
                         .length(1, 50)
                         .setDefaultValue(defaultName));
+    }
+
+    private static boolean isGasAnalyzer(String deviceClass) {
+        return "air.monitor.so2".equals(deviceClass)
+                || "air.monitor.no2".equals(deviceClass)
+                || "air.monitor.o3".equals(deviceClass)
+                || "air.monitor.co".equals(deviceClass);
+    }
+
+    private static String gasModelTip(String deviceClass) {
+        String v1;
+        String v2;
+        if ("air.monitor.so2".equals(deviceClass)) {
+            v1 = "SMS8200";
+            v2 = "SMS8200V2";
+        } else if ("air.monitor.no2".equals(deviceClass)) {
+            v1 = "SMS8300";
+            v2 = "SMS8300V2";
+        } else if ("air.monitor.o3".equals(deviceClass)) {
+            v1 = "SMS8400";
+            v2 = "SMS8400V2";
+        } else {
+            v1 = "SMS8500";
+            v2 = "SMS8500V2";
+        }
+        return "请按现场协议选择型号：\n"
+                + "· " + v1 + "：Modbus 协议 V1，下一步选择 RTU 或 TCP，并填写从站号。\n"
+                + "· " + v2 + "：ASCII 协议 V2。下一步直接填写串口参数，没有 Modbus 从站号。";
     }
     private Map<String, String> getDeviceModeOptions(String classInfo) {
         return SaimosenIntegration.classToModelMap(classInfo);
@@ -521,6 +561,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         displayData.remove("class_type_label");
         displayData.remove("qc_config_label");
         displayData.remove("qc_model_tip");
+        displayData.remove("gas_model_tip");
 
         return new ConfigSchema()
             .addField(new YamlConfigItem("config_summary")

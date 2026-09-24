@@ -49,25 +49,33 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
     static {
         MODEL_PROTOCOL_MAP = new HashMap<>();
         CLASS_MODEL_MAP = new HashMap<>();
-        // 二氧化硫监测仪
-        Map<String, String> so2Map = new HashMap<>();
-        so2Map.put("SMS8200", "SMS8200");
+        // 二氧化硫监测仪：V1 Modbus / V2 ASCII
+        Map<String, String> so2Map = new LinkedHashMap<>();
+        so2Map.put("SMS8200", "SMS8200（Modbus V1）");
         MODEL_PROTOCOL_MAP.put("SMS8200", Protocol.MODBUS.name());
+        so2Map.put("SMS8200V2", "SMS8200V2（ASCII V2）");
+        MODEL_PROTOCOL_MAP.put("SMS8200V2", Protocol.SERIAL.name());
         CLASS_MODEL_MAP.put("air.monitor.so2", so2Map);
         // 一氧化碳监测仪
-        Map<String, String> coMap = new HashMap<>();
-        coMap.put("SMS8500", "SMS8500");
+        Map<String, String> coMap = new LinkedHashMap<>();
+        coMap.put("SMS8500", "SMS8500（Modbus V1）");
         MODEL_PROTOCOL_MAP.put("SMS8500", Protocol.MODBUS.name());
+        coMap.put("SMS8500V2", "SMS8500V2（ASCII V2）");
+        MODEL_PROTOCOL_MAP.put("SMS8500V2", Protocol.SERIAL.name());
         CLASS_MODEL_MAP.put("air.monitor.co", coMap);
         // 二氧化氮监测仪
-        Map<String, String> no2Map = new HashMap<>();
-        no2Map.put("SMS8300", "SMS8300");
+        Map<String, String> no2Map = new LinkedHashMap<>();
+        no2Map.put("SMS8300", "SMS8300（Modbus V1）");
         MODEL_PROTOCOL_MAP.put("SMS8300", Protocol.MODBUS.name());
+        no2Map.put("SMS8300V2", "SMS8300V2（ASCII V2）");
+        MODEL_PROTOCOL_MAP.put("SMS8300V2", Protocol.SERIAL.name());
         CLASS_MODEL_MAP.put("air.monitor.no2", no2Map);
         // 臭氧监测仪
-        Map<String, String> o3Map = new HashMap<>();
-        o3Map.put("SMS8400", "SMS8400");
+        Map<String, String> o3Map = new LinkedHashMap<>();
+        o3Map.put("SMS8400", "SMS8400（Modbus V1）");
         MODEL_PROTOCOL_MAP.put("SMS8400", Protocol.MODBUS.name());
+        o3Map.put("SMS8400V2", "SMS8400V2（ASCII V2）");
+        MODEL_PROTOCOL_MAP.put("SMS8400V2", Protocol.SERIAL.name());
         CLASS_MODEL_MAP.put("air.monitor.o3", o3Map);
         // 质控仪：SMS8910 完整协议 V1 / V2
         Map<String, String> qcMap = new HashMap<>();
@@ -159,16 +167,32 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                     device = new ParticulateZeroChecker(entry);
                     break;
                 case AIR_MONITOR_O3:
-                    device = new O3Device(entry);
+                    if ("SMS8400V2".equals(model)) {
+                        device = new SMS8400V2Device(entry);
+                    } else {
+                        device = new O3Device(entry);
+                    }
                     break;
                 case AIR_MONITOR_NO2:
-                    device = new NO2Device(entry);
+                    if ("SMS8300V2".equals(model)) {
+                        device = new SMS8300V2Device(entry);
+                    } else {
+                        device = new NO2Device(entry);
+                    }
                     break;
                 case AIR_MONITOR_CO:
-                    device = new CODevice(entry);
+                    if ("SMS8500V2".equals(model)) {
+                        device = new SMS8500V2Device(entry);
+                    } else {
+                        device = new CODevice(entry);
+                    }
                     break;
                 case AIR_MONITOR_SO2:
-                    device = new SO2Device(entry);
+                    if ("SMS8200V2".equals(model)) {
+                        device = new SMS8200V2Device(entry);
+                    } else {
+                        device = new SO2Device(entry);
+                    }
                     break;
                 default:
                     log.error("Device class {} is not supported", deviceClass);

@@ -18,6 +18,7 @@ package com.ecat.integration.SaimosenIntegration.ConfigFlows;
 
 import com.ecat.core.ConfigEntry.SourceType;
 import com.ecat.core.ConfigFlow.ConfigItem.AbstractConfigItem;
+import com.ecat.core.ConfigFlow.ConfigItem.EnumConfigItem;
 import com.ecat.core.ConfigFlow.ConfigFlowResult;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.ConfigFlow.FlowContext;
@@ -195,6 +196,52 @@ public class SaimosenConfigFlowTest {
         ConfigFlowResult result = flow.handleStep("protocol_select", input("modbus_protocol", "TCP"));
         assertEquals("comm_config", result.getStepId());
         assertEquals(4.0, findField(result.getSchema(), "slave_id").getDefaultValue());
+    }
+
+    @Test
+    public void testGasModeStep_OffersV1AndV2() {
+        assertGasModels("air.monitor.so2", "SO2-OPT", "SMS8200", "SMS8200V2");
+        assertGasModels("air.monitor.no2", "NO2-OPT", "SMS8300", "SMS8300V2");
+        assertGasModels("air.monitor.o3", "O3-OPT", "SMS8400", "SMS8400V2");
+        assertGasModels("air.monitor.co", "CO-OPT", "SMS8500", "SMS8500V2");
+    }
+
+    @Test
+    public void testGasV2_NextStepIsSerialNotModbus() {
+        String[][] rows = {
+            {"air.monitor.so2", "SMS8200V2", "SO2-SER"},
+            {"air.monitor.no2", "SMS8300V2", "NO2-SER"},
+            {"air.monitor.o3", "SMS8400V2", "O3-SER"},
+            {"air.monitor.co", "SMS8500V2", "CO-SER"}
+        };
+        for (String[] row : rows) {
+            SaimosenConfigFlow local = new SaimosenConfigFlow();
+            local.getContext().setCoordinate("com.ecat:integration-saimosen");
+            local.executeUserStep(input("welcome", "ok"));
+            local.handleStep("device_config",
+                input("class_type_label", "说明", "class", row[0], "sn", row[2]));
+            ConfigFlowResult serial = local.handleStep("device_mode_config",
+                input("model", row[1], "name", "V2分析仪"));
+            assertEquals(row[1] + " 应进入串口参数", "protocol_select", serial.getStepId());
+            assertNotNull(findField(serial.getSchema(), "serial_port"));
+            for (AbstractConfigItem<?> field : serial.getSchema().getFields()) {
+                assertFalse(row[1] + " 不应出现 Modbus 协议选择",
+                    "modbus_protocol".equals(field.getKey()));
+            }
+        }
+    }
+
+    private void assertGasModels(String deviceClass, String sn, String v1, String v2) {
+        SaimosenConfigFlow local = new SaimosenConfigFlow();
+        local.getContext().setCoordinate("com.ecat:integration-saimosen");
+        local.executeUserStep(input("welcome", "ok"));
+        ConfigFlowResult mode = local.handleStep("device_config",
+            input("class_type_label", "说明", "class", deviceClass, "sn", sn));
+        assertEquals("device_mode_config", mode.getStepId());
+        EnumConfigItem model = (EnumConfigItem) findField(mode.getSchema(), "model");
+        assertTrue(model.getValidValues().contains(v1));
+        assertTrue(model.getValidValues().contains(v2));
+        assertNotNull(findField(mode.getSchema(), "gas_model_tip"));
     }
 
     private ConfigFlowResult walkToRtuCommConfig(String deviceClass, String model, String sn) {

@@ -11,6 +11,7 @@ import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.NumericAttribute;
+import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.TextAttribute;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.Unit.LiterFlowUnit;
@@ -183,10 +184,8 @@ public class SO2Device extends SmsDeviceBase {
                 "device_address",
                 AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, true));
-        setAttribute(new NumericAttribute(
-                "device_status",
-                AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
-                1, false, true));
+        setAttribute(new StringSelectAttribute(
+                "device_status", AttributeClass.STATUS, false, SmsGasInstrumentStatus.options()));
         setAttribute(new NumericAttribute(
                 "pmt_high_volt_setting",
                 AttributeClass.VOLTAGE, VoltageUnit.VOLT, VoltageUnit.VOLT,
@@ -458,6 +457,7 @@ public class SO2Device extends SmsDeviceBase {
 
     private void updateAllAttributes(SegmentData floatData, SegmentData u16Data, 
                                    SegmentData spanCalibConcentration, SegmentData instrumentCalibStatus) {
+        applyInstrumentStatus(u16Data, instrumentCalibStatus);
         AttributeStatus autoStatus = mapToAttributeStatus(deviceStatus);
         if (floatData == null && u16Data == null && spanCalibConcentration == null && instrumentCalibStatus == null) {
             autoStatus = AttributeStatus.MALFUNCTION;
@@ -494,7 +494,7 @@ public class SO2Device extends SmsDeviceBase {
         // String[] u16AttrNames = {"DEVICE_ADDRESS", "DEVICE_STATUS", "PMT_HIGH_VOLT_SETTING", "CHAMBER_TEMP_VOLT", "SAMPLE_PRESS_VOLT", "PUMP_PRESS_VOLT", "CASE_TEMP_VOLT", "PMT_TEMP_VOLT", "CASE_TEMP", "VOLTAGE_12V", "VOLTAGE_15V", "VOLTAGE_5V", "VOLTAGE_3V3", "PMT_HIGH_VOLT_READ"};
 
         updateAttribute("device_address", values[0], status);
-        updateAttribute("device_status", values[1], status);
+        SmsGasInstrumentStatus.writeSelect(getAttrs().get("device_status"), (int) values[1], status);
         updateAttribute("pmt_high_volt_setting", values[2] / 10.0, status);
         updateAttribute("chamber_temp_volt", values[3] / 10.0, status);
         updateAttribute("sample_press_volt", values[4] / 10.0, status);
@@ -559,19 +559,14 @@ public class SO2Device extends SmsDeviceBase {
     }
 
     private AttributeStatus mapToAttributeStatus(DeviceStatus deviceStatus) {
-        switch (deviceStatus) {
-            case MEASURE:
-                return AttributeStatus.NORMAL;
-            case ZERO_CALIBRATION:
-                return AttributeStatus.ZERO_CALIBRATION;
-            case SPAN_CALIBRATION:
-                return AttributeStatus.SPAN_CALIBRATION;
-            case MAINTENANCE:
-                return AttributeStatus.MAINTENANCE;
-            case UNKNOWN:
-            default:
-                return AttributeStatus.EMPTY;
+        return SmsGasInstrumentStatus.toAttributeStatus(deviceStatus);
+    }
+
+    private void applyInstrumentStatus(SegmentData u16Data, SegmentData instrumentCalibStatus) {
+        if (u16Data == null || instrumentCalibStatus == null || u16Data.values.length <= SmsGasInstrumentStatus.U16_INDEX) {
+            return;
         }
+        deviceStatus = SmsGasInstrumentStatus.overlay(deviceStatus, (int) u16Data.values[SmsGasInstrumentStatus.U16_INDEX]);
     }
 
     private void updateAttribute(String attrName, double value, AttributeStatus status) {

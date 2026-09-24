@@ -1,6 +1,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.Device.DeviceStatus;
 import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.Bus.BusRegistry;
@@ -728,6 +729,62 @@ public class NO2DeviceTest {
             // 恢复i18n功能
             ResourceLoader.setLoadI18nResources(true);
         }
+    }
+
+    @Test
+    public void testInstrumentStatus_WarmUpOverridesMeasure() throws Exception {
+        mockNo2Poll(4, 0);
+
+        no2Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+
+        assertEquals(DeviceStatus.WARM_UP, no2Device.getDeviceStatus());
+        NumericAttribute no2Attr = (NumericAttribute) no2Device.getAttrs().get("no2");
+        assertEquals(AttributeStatus.WAITING, no2Attr.getState().getStatus());
+        StringSelectAttribute instrument = (StringSelectAttribute) no2Device.getAttrs().get("device_status");
+        assertEquals(SmsGasInstrumentStatus.WARM_UP, instrument.getState().getValue());
+        assertEquals("热机", instrument.getDisplayValue());
+    }
+
+    @Test
+    public void testInstrumentStatus_DiagnosticOverridesSpanCalibration() throws Exception {
+        mockNo2Poll(2, 2);
+
+        no2Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+
+        assertEquals(DeviceStatus.MAINTENANCE, no2Device.getDeviceStatus());
+        NumericAttribute no2Attr = (NumericAttribute) no2Device.getAttrs().get("no2");
+        assertEquals(AttributeStatus.MAINTENANCE, no2Attr.getState().getStatus());
+        StringSelectAttribute instrument = (StringSelectAttribute) no2Device.getAttrs().get("device_status");
+        assertEquals("诊断", instrument.getDisplayValue());
+    }
+
+    private void mockNo2Poll(int instrumentStatus, int calibrationStatus) {
+        short[] mockFloatRegisters = new short[54];
+        short[] mockU16Registers = new short[28];
+        mockU16Registers[SmsGasInstrumentStatus.U16_INDEX] = (short) instrumentStatus;
+        short[] mockSpanCalibRegisters = new short[] {(short) 400};
+        short[] mockCalibRegisters = new short[] {(short) calibrationStatus};
+
+        ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockU16Response = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockSpanCalibResponse = mock(ReadHoldingRegistersResponse.class);
+        ReadHoldingRegistersResponse mockCalibResponse = mock(ReadHoldingRegistersResponse.class);
+
+        when(mockFloatResponse.getShortData()).thenReturn(mockFloatRegisters);
+        when(mockU16Response.getShortData()).thenReturn(mockU16Registers);
+        when(mockSpanCalibResponse.getShortData()).thenReturn(mockSpanCalibRegisters);
+        when(mockCalibResponse.getShortData()).thenReturn(mockCalibRegisters);
+
+        when(mockModbusSource.readHoldingRegisters(anyInt(), anyInt()))
+                .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0), eq(54)))
+                .thenReturn(CompletableFuture.completedFuture(mockFloatResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(58), eq(28)))
+                .thenReturn(CompletableFuture.completedFuture(mockU16Response));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EB), eq(1)))
+                .thenReturn(CompletableFuture.completedFuture(mockSpanCalibResponse));
+        when(mockModbusSource.readHoldingRegisters(eq(0x3EE), eq(1)))
+                .thenReturn(CompletableFuture.completedFuture(mockCalibResponse));
     }
 
     /**

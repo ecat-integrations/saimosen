@@ -285,6 +285,66 @@ public class SaimosenIntegrationTest {
     }
 
     @Test
+    public void testClassToModelMap_GasV2_IsSerial() {
+        assertGasV2("air.monitor.so2", "SMS8200", "SMS8200V2");
+        assertGasV2("air.monitor.no2", "SMS8300", "SMS8300V2");
+        assertGasV2("air.monitor.o3", "SMS8400", "SMS8400V2");
+        assertGasV2("air.monitor.co", "SMS8500", "SMS8500V2");
+    }
+
+    @Test
+    public void testCreateDeviceFromEntry_GasV2_Serial() throws Exception {
+        assertGasV2Device("air.monitor.so2", "SMS8200V2", SMS8200V2Device.class);
+        assertGasV2Device("air.monitor.no2", "SMS8300V2", SMS8300V2Device.class);
+        assertGasV2Device("air.monitor.o3", "SMS8400V2", SMS8400V2Device.class);
+        assertGasV2Device("air.monitor.co", "SMS8500V2", SMS8500V2Device.class);
+    }
+
+    private void assertGasV2(String deviceClass, String v1, String v2) {
+        Map<String, String> models = SaimosenIntegration.classToModelMap(deviceClass);
+        assertTrue(models.containsKey(v1));
+        assertTrue(models.containsKey(v2));
+        assertEquals(SaimosenIntegration.Protocol.MODBUS.name(), SaimosenIntegration.getProtocolByMode(v1));
+        assertEquals(SaimosenIntegration.Protocol.SERIAL.name(), SaimosenIntegration.getProtocolByMode(v2));
+    }
+
+    private void assertGasV2Device(String deviceClass, String model, Class<?> type) throws Exception {
+        ConfigEntry entry = createSerialGasEntry(deviceClass, model);
+        setupMockCoreForSerialDeviceCreation();
+        resetSerialIntegrationStatic();
+        SaimosenIntegration spy = spy(integration);
+        doReturn(false).when(spy).addDevice(any(com.ecat.core.Device.DeviceBase.class));
+        com.ecat.core.Device.DeviceBase device = spy.createDeviceFromEntry(entry);
+        assertNotNull(model + " 应创建出设备", device);
+        assertTrue(model + " 类型应为 " + type.getSimpleName(), type.isInstance(device));
+        verify(spy, never()).addDevice(any(com.ecat.core.Device.DeviceBase.class));
+    }
+
+    private ConfigEntry createSerialGasEntry(String deviceClass, String model) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("class", deviceClass);
+        data.put("name", model);
+        data.put("vendor", "saimosen");
+        data.put("sn", model + "-SN");
+        data.put("model", model);
+        Map<String, Object> comm = new HashMap<>();
+        comm.put("serial_port", "/dev/ttyUSB9");
+        comm.put("baudrate", "9600");
+        comm.put("data_bits", "8");
+        comm.put("stop_bits", "1");
+        comm.put("parity", "N");
+        comm.put("timeout", 2000);
+        data.put("comm_settings", comm);
+        return new ConfigEntry.Builder()
+            .entryId("test-entry-" + model)
+            .coordinate("integration-saimosen")
+            .uniqueId("saimosen_" + deviceClass + "_" + model)
+            .title(model)
+            .data(data)
+            .build();
+    }
+
+    @Test
     public void testClassToModelMap_PM_ContainsSMS8700() {
         Map<String, String> pmModels = SaimosenIntegration.classToModelMap("air.monitor.pm");
         assertTrue(pmModels.containsKey("SMS8700"));
