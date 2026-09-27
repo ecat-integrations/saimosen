@@ -241,7 +241,7 @@ public class SmartPowerStabilizerTest {
         // 轮询经 SDK 内绑宿主生命周期（on(this, source)，句柄不外泄）；首轮立即发射
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        stabilizer.pollPeriodMs = 150L;
+        stabilizer.pollIntervalMs = 150L;
         stabilizer.start();
         assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
                 firstRead.await(5, TimeUnit.SECONDS));

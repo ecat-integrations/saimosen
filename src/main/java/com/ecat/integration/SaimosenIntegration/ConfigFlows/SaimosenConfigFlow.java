@@ -21,6 +21,7 @@ import com.ecat.core.ConfigFlow.ConfigFlowResult;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.ConfigFlow.ConfigItem.BooleanConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.EnumConfigItem;
+import com.ecat.core.ConfigFlow.ConfigItem.NumericConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.TextConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.YamlConfigItem;
 import com.ecat.core.ConfigFlow.FlowContext;
@@ -31,6 +32,7 @@ import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusCommTypeSchema
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusRtuCommConfigSchema;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusTcpCommConfigSchema;
 import com.ecat.integration.SaimosenIntegration.SaimosenIntegration;
+import com.ecat.integration.SaimosenIntegration.SmsDeviceBase;
 import com.ecat.integration.SerialIntegration.ConfigSchemas.SerialCommConfigSchema;
 
 import java.util.HashMap;
@@ -40,9 +42,10 @@ import java.util.Map;
 /**
  * Saimosen 设备配置流程
  * <p>
- * 流程步骤：user -> device_config -> [qc_config] -> protocol_select -> comm_config -> final_confirm
+ * 流程步骤：user -> device_config -> device_mode_config -> [qc_config] -> protocol_select -> comm_config -> final_confirm
  * <ul>
- *   <li>device_config: 设备基本配置（类型、名称、序列号）</li>
+ *   <li>device_config: 设备基本配置（类型、序列号）</li>
+ *   <li>device_mode_config: 设备型号选择 + 采集间隔（按机型分档预填：SMS8700 出厂档 10s，其余机型通用默认 5s）</li>
  *   <li>qc_config: 质控仪专用配置（采样管长度），仅选择质控仪时出现</li>
  *   <li>protocol_select: 选择 Modbus 协议类型（RTU/TCP）</li>
  *   <li>comm_config: 根据协议类型动态显示 RTU 或 TCP 通讯配置</li>
@@ -151,6 +154,12 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         // 将 model 和 name 保存到 entryData（此步骤的 schema 包含这两个字段）
         context.getEntryData().put("model", userInput.get("model"));
         context.getEntryData().put("name", userInput.get("name"));
+        // 采集间隔（顶层键，与运行时 load 读端一致）：用户清空可选项时不落键，
+        // 设备侧按机型档回退（SMS8700 出厂 10s / 其余 5s），表单所见=运行时所得
+        Object pollIntervalSec = userInput.get("poll_interval_sec");
+        if (pollIntervalSec != null && !pollIntervalSec.toString().trim().isEmpty()) {
+            context.getEntryData().put("poll_interval_sec", pollIntervalSec);
+        }
         // 质控仪需要额外配置采样管长度和内径
         if (QC_CLASS.equals(deviceClass)) {
             return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
@@ -331,7 +340,8 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     /**
      * 创建设备基本配置 Schema
      * <p>
-     * 包含设备类型（class）、名称、序列号。
+     * 包含设备类型（class）、序列号。
+     * 采集间隔不在此步：渲染时 model 未知无法分档，字段由 device_mode_config 步按机型预填。
      * 采样管长度在选择质控仪后由 qc_config 步骤收集。
      */
     private ConfigSchema createDeviceBasicSchema() {
@@ -425,14 +435,24 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
             schema.addField(new TextConfigItem("gas_model_tip", false, gasModelTip(deviceClass))
                     .displayName("气态协议版本说明"));
         }
+        // 采集间隔按机型分档预填（字段自 device_config 步挪入本步）：渲染本步时 class 已知，
+        // 单型号类型号唯一确定（如 air.monitor.pm → SMS8700，出厂档 10s），按该机型分档预填；
+        // 多型号类用户尚未选型，但全部候选机型均为 base 缺省档（5s），预填通用默认值。
+        // 分档取值经 SmsDeviceBase.defaultPollIntervalSec 单源（与 SMS8700PMDevice.load() 回退档同源）。
+        Map<String, String> modelOptions = getDeviceModeOptions(deviceClass);
+        String determinedModel = modelOptions.size() == 1
+                ? modelOptions.keySet().iterator().next() : null;
         return schema.addField(new EnumConfigItem("model", true)
                 .displayName("型号")
-                .addOptions(getDeviceModeOptions(deviceClass))
+                .addOptions(modelOptions)
                 .buildValidator())
                 .addField(new TextConfigItem("name", true)
                         .displayName("设备名称")
                         .length(1, 50)
-                        .setDefaultValue(defaultName));
+                        .setDefaultValue(defaultName))
+                .addField(new NumericConfigItem("poll_interval_sec", false,
+                                SmsDeviceBase.defaultPollIntervalSec(determinedModel))
+                        .displayName("采集间隔(秒)").range(0.01, 60));
     }
 
     private static boolean isGasAnalyzer(String deviceClass) {

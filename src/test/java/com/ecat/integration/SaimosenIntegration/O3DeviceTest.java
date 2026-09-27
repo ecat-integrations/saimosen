@@ -372,7 +372,7 @@ public class O3DeviceTest {
     public void testStop_CancelsScheduledTasks() throws Exception {
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        o3Device.pollPeriodMs = 150L;
+        o3Device.pollIntervalMs = 150L;
         o3Device.start();
         assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 
@@ -394,7 +394,7 @@ public class O3DeviceTest {
     public void testRelease_CancelsReadFuture() throws Exception {
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        o3Device.pollPeriodMs = 150L;
+        o3Device.pollIntervalMs = 150L;
         o3Device.start();
         assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 
@@ -611,7 +611,7 @@ public class O3DeviceTest {
         // 2. 启动（首轮 latch：确定性确认轮询已注册运行，非仅不抛异常）
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        o3Device.pollPeriodMs = 150L;
+        o3Device.pollIntervalMs = 150L;
         o3Device.start();
         assertTrue("start 后首轮轮询必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 

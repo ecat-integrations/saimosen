@@ -36,9 +36,6 @@ import com.ecat.integration.ModbusIntegration.Tools;
  */
 public class O3Device extends SmsDeviceBase {
 
-    /** 轮询周期（毫秒）。生产=标准采集频率 5s；单测注入短周期压缩负向等待窗。 */
-    protected long pollPeriodMs = 5_000L;
-
     private static final String STATUS_PREFIX = "o3";
 
     // 数据段配置
@@ -96,11 +93,11 @@ public class O3Device extends SmsDeviceBase {
 
     @Override
     public void start() {
-        // 周期轮询（pollPeriodMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK
+        // 周期轮询（pollIntervalMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK
         // 托管，设备类只提供 round（多段并行读在单事务内 FIFO 单飞）
         ModbusPolling.on(this, modbusSource)
                 .round(this::readAndUpdate)
-                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
+                .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

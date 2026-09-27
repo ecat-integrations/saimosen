@@ -18,9 +18,11 @@ package com.ecat.integration.SaimosenIntegration.ConfigSchemas;
 
 import com.ecat.core.ConfigFlow.ConfigItem.EnumConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.FloatConfigItem;
+import com.ecat.core.ConfigFlow.ConfigItem.NumericConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.TextConfigItem;
 import com.ecat.core.ConfigFlow.ConfigSchema;
 import com.ecat.core.ConfigFlow.ConfigSchemaProvider;
+import com.ecat.integration.SaimosenIntegration.SmsDeviceBase;
 
 /**
  * Saimosen 设备配置 Schema
@@ -60,6 +62,11 @@ public class SaimosenDeviceConfigSchema implements ConfigSchemaProvider {
             .addField(new TextConfigItem("name", true).displayName("设备名称").length(1, 50))
             .addField(new TextConfigItem("sn", true).displayName("序列号"))
             .addField(new TextConfigItem("vendor", false).displayName("厂商"))
+            // 本 Schema 为 entry 数据的校验面（createDeviceFromEntry），静态构建无 model 上下文，
+            // 预填档取通用默认；表单侧按机型分档预填（SMS8700 出厂 10s / 其余 5s）
+            // 收敛在 SaimosenConfigFlow.device_mode_config 步，分档单一源为 SmsDeviceBase.defaultPollIntervalSec。
+            .addField(new NumericConfigItem("poll_interval_sec", false, SmsDeviceBase.DEFAULT_POLL_INTERVAL_SEC)
+                .displayName("采集间隔(秒)").range(0.01, 60))
             .addField(new FloatConfigItem("sampling_tube_length", false)
                 .displayName("采样管长度(m)")
                 .range(0, 100))

@@ -23,8 +23,6 @@ import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandl
  */
 public class SMS8500V2Device extends SmsV2GasDeviceBase {
 
-    protected long pollPeriodMs = 5_000L;
-
     public Double molecularWeight = 28.0;
 
     private static final String REAL_DATA_CMD = "coochr$";
@@ -57,7 +55,7 @@ public class SMS8500V2Device extends SmsV2GasDeviceBase {
         SerialPolling.on(this, serialSource)
                 .round(source -> getRealData()
                         .thenCompose(v -> getStatusData()))
-                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
+                .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

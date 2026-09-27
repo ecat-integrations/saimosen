@@ -49,10 +49,20 @@ import com.ecat.integration.ModbusIntegration.Const;
  * @author coffee
  */
 public abstract class SmsDeviceBase extends DeviceBase {
+
+    /**
+     * 默认采集间隔（秒）。现行采集节律为 5s，收编为可配置项后默认行为零变化；
+     * flow 表单、provider 校验、load() 读端三处同引此常量，不出现第二份字面量。
+     */
+    public static final int DEFAULT_POLL_INTERVAL_SEC = 5;
+
     protected static ModbusIntegration modbusIntegration;
     protected ModbusSource modbusSource;
     protected ModbusInfo modbusInfo;
     protected String modbusProtocol;
+
+    /** 轮询周期（毫秒）。生产默认=标准采集频率 5s（可经顶层键 poll_interval_sec 配置），load() 覆写。 */
+    protected long pollIntervalMs = DEFAULT_POLL_INTERVAL_SEC * 1000L;
 
 
     /**
@@ -85,6 +95,42 @@ public abstract class SmsDeviceBase extends DeviceBase {
             // 默认 RTU
             parseRtuCommSettings(commSettings);
         }
+
+        // 采集间隔（顶层键 poll_interval_sec，秒）：缺省/非法（非数字、<0.01、>60，与表单
+        // range(0.01,60) 一致）一律回退 DEFAULT_POLL_INTERVAL_SEC——这是配置面外的越界值
+        // （手工构造/异构导入）的唯一防线；解析与秒→ms 换算收敛在 resolvePollIntervalMs 一处，
+        // 经 pollIntervalMs 下发 SDK 轮询节律（protected 字段，单测可注入短周期）
+        pollIntervalMs = resolvePollIntervalMs(config, DEFAULT_POLL_INTERVAL_SEC);
+    }
+
+    /**
+     * 解析顶层键 poll_interval_sec 为毫秒：缺键/非数字/越界（&lt;0.01 或 &gt;60，与表单
+     * range(0.01,60) 一致）一律回退 fallbackSec。支持小数秒（如 2.5 → 2500ms）。
+     * base 缺省档、SMS8700PM 出厂档与 SmsV2GasDeviceBase 串口支路共用，全仓校验与秒→ms 换算只此一份。
+     */
+    static long resolvePollIntervalMs(Map<String, Object> config, int fallbackSec) {
+        try {
+            double sec = Double.parseDouble(String.valueOf(config.get("poll_interval_sec")));
+            long ms = Math.round(sec * 1000.0);
+            if (ms < 10 || ms > 60_000) {
+                return fallbackSec * 1000L;
+            }
+            return ms;
+        } catch (NumberFormatException e) {
+            return fallbackSec * 1000L;
+        }
+    }
+
+    /**
+     * 按机型分档的预填档（秒）：SMS8700 出厂档 10s，其余机型 base 缺省档 5s。
+     * <p>device_mode_config 表单预填与 SMS8700PMDevice.load() 缺省/非法回退共用此分档，
+     * 全仓 10/5 分档只此一份；model 传 null（渲染期多型号类机型未定）按缺省档处理。
+     * 传 null 走缺省档是既有事实的直读：SMS8700 是全仓唯一 10s 档机型，多型号类不含它。
+     */
+    public static int defaultPollIntervalSec(String model) {
+        return SMS8700PMDevice.MODEL.equals(model)
+                ? SMS8700PMDevice.FACTORY_POLL_INTERVAL_SEC
+                : DEFAULT_POLL_INTERVAL_SEC;
     }
 
     /**
@@ -164,9 +210,10 @@ public abstract class SmsDeviceBase extends DeviceBase {
     }
 
     /**
-     * 从 Map 中解析数值，支持 Number 和 String 类型
+     * 从 Map 中解析数值，支持 Number 和 String 类型；缺键/非数字一律回退默认值。
+     * 通讯参数读端专用（采集间隔经 resolvePollIntervalMs 小数解析，不经本方法）。
      */
-    private int parseNumeric(Map<String, Object> map, String key, int defaultValue) {
+    static int parseNumeric(Map<String, Object> map, String key, int defaultValue) {
         Object value = map.get(key);
         if (value == null) {
             return defaultValue;

@@ -2,6 +2,7 @@
 package com.ecat.integration.SaimosenIntegration;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
+import com.ecat.core.EcatCore;
 import com.ecat.core.State.*;
 import com.ecat.core.State.Unit.*;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlerStrategy;
@@ -22,8 +23,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class SMS8600V2Device extends SerialDeviceBase {
 
-    /** 轮询周期（毫秒）。生产=标准采集频率 5s；单测注入短周期压缩负向等待窗。 */
-    protected long pollPeriodMs = 5_000L;
+    /** 轮询周期（毫秒）。生产=标准采集频率 5s（可经顶层键 poll_interval_sec 配置），load() 覆写；单测注入短周期压缩负向等待窗。 */
+    protected long pollIntervalMs = SmsDeviceBase.DEFAULT_POLL_INTERVAL_SEC * 1000L;
 
     public Double molecularWeight = 28.0; //分子质量
 
@@ -98,15 +99,26 @@ public class SMS8600V2Device extends SerialDeviceBase {
     }
 
     @Override
+    public void load(EcatCore core) {
+        super.load(core);
+        // 采集间隔（顶层键 poll_interval_sec，秒）：缺省/非法（非数字、<0.01、>60，与表单
+        // range(0.01,60) 一致）一律回退 DEFAULT_POLL_INTERVAL_SEC——配置面外越界值的唯一防线；
+        // 解析与秒→ms 换算复用 SmsDeviceBase.resolvePollIntervalMs（全仓只此一份），
+        // 经 pollIntervalMs 下发 SerialPolling 节律（protected 字段，单测可注入短周期）。
+        // 该间隔同时是 logicdevice-airstation 标气消耗公式的折算依据（同键同源）。
+        pollIntervalMs = SmsDeviceBase.resolvePollIntervalMs(config, SmsDeviceBase.DEFAULT_POLL_INTERVAL_SEC);
+    }
+
+    @Override
     public void start() {
         // 设备工作状态初值在就绪后（phase=READY）发布，避免预 ready 期 publish；
         // persistable=false 不持久化，重启首轮轮询拿到真实状态即覆盖。
         getAttrs().get("work_status").setDisplayValue(AttributeStatus.NORMAL.getName());
-        // 周期轮询（pollPeriodMs，生产默认 5s）：调度注册/事务包裹/锁忙消化/异常韧性/统一日志全部由
-        // SerialPolling SDK 托管。两步构建：round 体内以 polling.delay() 表达命令间
-        // 300ms 节拍（适应设备性能，收编本地 delay() 助手）
+        // 周期轮询（pollIntervalMs，生产默认 5s，可经 poll_interval_sec 配置）：调度注册/事务包裹/
+        // 锁忙消化/异常韧性/统一日志全部由 SerialPolling SDK 托管。两步构建：round 体内以
+        // polling.delay() 表达命令间 300ms 节拍（适应设备性能，收编本地 delay() 助手）
         final SerialPolling polling = SerialPolling.on(this, serialSource)
-                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
+                .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .interCommandDelayMs(300);
         polling
                 .round(source -> getRealData()

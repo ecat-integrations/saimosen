@@ -369,7 +369,7 @@ public class QCDeviceTest {
         device.secondBlockGapMs = 1L;
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        device.pollPeriodMs = 150L;
+        device.pollIntervalMs = 150L;
         device.start();
         assertTrue("首轮（initialDelay=0）必须立即发起 FIRST 块读",
                 firstRead.await(5, TimeUnit.SECONDS));

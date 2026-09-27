@@ -25,8 +25,6 @@ import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandl
  */
 public class SMS8300V2Device extends SmsV2GasDeviceBase {
 
-    protected long pollPeriodMs = 5_000L;
-
     public Double noMolecularWeight = 30.0;
     public Double no2MolecularWeight = 46.0;
     public Double noxMolecularWeight = 46.0;
@@ -61,7 +59,7 @@ public class SMS8300V2Device extends SmsV2GasDeviceBase {
         SerialPolling.on(this, serialSource)
                 .round(source -> getRealData()
                         .thenCompose(v -> getStatusData()))
-                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
+                .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

@@ -238,7 +238,7 @@ public class SampleTubeTest {
                 });
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        sampleTube.pollPeriodMs = 150L;
+        sampleTube.pollIntervalMs = 150L;
         sampleTube.start();
         assertTrue("首轮（initialDelay=0）必须立即发起 DEFAULT 块读",
                 firstRead.await(5, TimeUnit.SECONDS));
@@ -463,7 +463,7 @@ public class SampleTubeTest {
 
         RoundEntryProbe probe = RoundEntryProbe.on(mockModbusSource);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        sampleTube.pollPeriodMs = 150L;
+        sampleTube.pollIntervalMs = 150L;
         sampleTube.start();
         assertTrue("首轮必须发起", probe.firstRound.await(8, TimeUnit.SECONDS));
 

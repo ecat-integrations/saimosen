@@ -314,7 +314,7 @@ public class SMS8600V2DeviceTest {
     public void testStop_CancelsScheduledTasks() throws Exception {
         CountDownLatch firstRound = pollingRoundProbe(1);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        sms8600v2Device.pollPeriodMs = 150L;
+        sms8600v2Device.pollIntervalMs = 150L;
         sms8600v2Device.start();
         assertTrue("首轮必须发起", firstRound.await(8, TimeUnit.SECONDS));
 
@@ -334,7 +334,7 @@ public class SMS8600V2DeviceTest {
         when(mockSerialSource.isPortOpen()).thenReturn(true);
         CountDownLatch firstRound = pollingRoundProbe(1);
         // 单测注入短轮询周期（生产默认 5s）：负向窗 300ms ≥ 2 拍×150ms，走生产 start() 真实接线
-        sms8600v2Device.pollPeriodMs = 150L;
+        sms8600v2Device.pollIntervalMs = 150L;
         sms8600v2Device.start();
         assertTrue("首轮必须发起", firstRound.await(8, TimeUnit.SECONDS));
 

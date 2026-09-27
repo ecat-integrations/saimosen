@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.ecat.core.ConfigEntry.ConfigEntry;
 import com.ecat.core.Device.DeviceStatus;
+import com.ecat.core.EcatCore;
 import com.ecat.core.State.AttributeAbility;
 import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
@@ -28,8 +29,15 @@ import com.ecat.integration.ModbusIntegration.Tools;
  */
 public class SMS8700PMDevice extends SmsDeviceBase {
 
-    /** 轮询周期（毫秒）。生产=标准采集频率 10s；单测注入短周期压缩负向等待窗。 */
-    protected long pollPeriodMs = 10_000L;
+    /** 本机型型号标识："air.monitor.pm" 类下唯一型号，与 SaimosenIntegration CLASS_MODEL_MAP 注册项同值，分档判定的机型身份单一来源。 */
+    public static final String MODEL = "SMS8700";
+
+    /**
+     * 本机型出厂采集节律（秒）。与 base 缺省 5s 不同：poll_interval_sec 缺省/非法时 load() 回退此值；
+     * device_mode_config 表单按机型分档预填亦经 {@link SmsDeviceBase#defaultPollIntervalSec(String)} 引用此常量，
+     * 全仓 10s 档只此一份，默认行为零变化。
+     */
+    public static final int FACTORY_POLL_INTERVAL_SEC = 10;
 
     private static final String STATUS_PREFIX = "pm";
 
@@ -66,6 +74,14 @@ public class SMS8700PMDevice extends SmsDeviceBase {
     }
 
     @Override
+    public void load(EcatCore core) {
+        super.load(core);
+        // 本机型出厂节律 10s（base 回退值为 5s）：poll_interval_sec 缺省/非法时按 10s 兜底，
+        // 解析与秒→ms 换算复用 SmsDeviceBase.resolvePollIntervalMs（全仓只此一份）
+        pollIntervalMs = resolvePollIntervalMs(config, FACTORY_POLL_INTERVAL_SEC);
+    }
+
+    @Override
     public void init() {
         super.init();
         createAttributes();
@@ -73,10 +89,10 @@ public class SMS8700PMDevice extends SmsDeviceBase {
 
     @Override
     public void start() {
-        // 周期轮询（pollPeriodMs，生产默认 10s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
+        // 周期轮询（pollIntervalMs，生产默认 10s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管
         ModbusPolling.on(this, modbusSource)
                 .round(this::readAndUpdate)
-                .every(pollPeriodMs, TimeUnit.MILLISECONDS)
+                .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .start();
     }
 

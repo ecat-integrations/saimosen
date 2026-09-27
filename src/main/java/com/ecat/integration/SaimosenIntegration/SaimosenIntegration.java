@@ -86,8 +86,8 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         CLASS_MODEL_MAP.put("air.monitor.qc", qcMap);
         // PM 监测仪（多粒径）
         Map<String, String> pmMap = new HashMap<>();
-        pmMap.put("SMS8700", "SMS8700（多粒径颗粒物自动监测仪）");
-        MODEL_PROTOCOL_MAP.put("SMS8700", Protocol.MODBUS.name());
+        pmMap.put(SMS8700PMDevice.MODEL, "SMS8700（多粒径颗粒物自动监测仪）");
+        MODEL_PROTOCOL_MAP.put(SMS8700PMDevice.MODEL, Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.pm", pmMap);
         // PM 零点校验仪
         Map<String, String> pmQcMap = new HashMap<>();
