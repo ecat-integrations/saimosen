@@ -60,10 +60,10 @@ public class QCDevice extends SmsDeviceBase {
     protected Map<Integer, List<AttributeInfo>> duplicateMap = new HashMap<>();
 
     /**
-     * 块二前节拍（毫秒，默认 1000）：设备性能要求——连续读寄存器块之间须留隙，盲发
-     * 第二笔会锁忙静默缺失（见 readRegisters 注释）。包可见，供同包测试注入小值：
-     * 单测只验证链路语义（两块全读 + finishReadCycle 发布），节拍本身不是被测对象，
-     * 生产默认不变。
+     * 块二前节拍（毫秒，默认 1000）：设备性能要求——连续读寄存器块之间须留隙。作为
+     * roundChain 段间 gap（源锁临界区外的锁外节拍）注入 start()。包可见，供同包测试
+     * 注入小值：单测只验证链路语义（两块全读 + finishReadCycle 发布），节拍本身不是
+     * 被测对象，生产默认不变。
      */
     long secondBlockGapMs = 1000L;
 
@@ -91,11 +91,17 @@ public class QCDevice extends SmsDeviceBase {
         // 配置派生属性在 id 解析后（start 时机）赋值，确保 state.deviceId 为持久化 id
         initConfigDerivedAttributeValues();
 
-        // 周期轮询（pollIntervalMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK 托管。
-        // 两步构建：round 链内块间 1s/500ms 节拍经 polling.delay(ms) 糖表达（收编本地
-        // getScheduledExecutor delay() 助手；同 SMS8600V2Device 的 serial 侧迁移形态）
-        final ModbusPolling polling = ModbusPolling.on(this, modbusSource);
-        polling.round(source -> readRegisters(polling, source))
+        // 周期轮询（pollIntervalMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志
+        // 全部由 ModbusPolling SDK 托管。多段轮（roundChain）：两块读各自独立源锁事务，
+        // 块间 1s 留隙在源锁临界区之外——设备性能要求的留隙不再变成持锁时长（旧形态
+        // round 体内 delay 留隙整轮持锁，把写命令的有界等待预算挤爆）。写者可在留隙窗内
+        // 取锁，块二到点重新走既有有界取锁排队（与写者 FIFO 同队）。
+        ModbusPolling.on(this, modbusSource)
+                .roundChain()
+                .held(this::readFirstBlock)
+                .gap(secondBlockGapMs)
+                .held(this::readSecondBlock)
+                .end()
                 .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .start();
     }
@@ -491,7 +497,7 @@ public class QCDevice extends SmsDeviceBase {
      * <p>配置派生属性的业务值改在 {@link #initConfigDerivedAttributeValues()} 写入——必须在设备 id 解析
      * （addDevice/getOrCreate）之后：{@code AttributeBase.updateValue} 要求 {@code attr.device != null}，
      * 且 {@code AttrState.deviceId} 必填持久化 id；构造期 id 尚未解析，此时 updateValue 会跳过 midState
-     * 构建导致 state 为 null。计算属性（residence_time）由 readRegisters 周期重算，无需赋初值。
+     * 构建导致 state 为 null。计算属性（residence_time）由块读轮询周期重算，无需赋初值。
      */
     private void registerConfigDerivedAttributes() {
         setAttribute(new NumericAttribute("tube_length", "采样管长度", AttributeClass.NUMERIC,
@@ -584,13 +590,11 @@ public class QCDevice extends SmsDeviceBase {
     }
 
     /**
-     * 定时读取Modbus寄存器数据（SDK 单事务 round：两块读在同源锁内 FIFO 串行，
-     * 块间 1s 节拍保留——设备性能要求。旧形态为两笔独立事务在 1s 定时到点
-     * 盲发第二笔，块一未完成时第二笔非阻塞取锁必锁忙静默缺失（wit-motion 同型缺陷），
-     * 合并后天然串行不再互踩）
+     * 块一读（roundChain 段一，独立源锁事务；0~109）：解析失败标记全属性 MALFUNCTION、
+     * 传输异常记日志——两类结局都被尾部 {@code .handle} 兜成 true（段一恒不阻断块二，
+     * 旧 fire-and-forget 语义保留；roundChain 折叠规则里段体显式 false 才中止后续段）。
      */
-    protected CompletableFuture<Boolean> readRegisters(ModbusPolling polling, ModbusSource source) {
-        // 第一块：前 110 个参数（失败不阻断后续块——旧形态块一为 fire-and-forget，异常被丢弃）
+    protected CompletableFuture<Boolean> readFirstBlock(ModbusSource source) {
         return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
                 .thenApply(firstResponse -> {
                     try {
@@ -611,27 +615,33 @@ public class QCDevice extends SmsDeviceBase {
                         log.error("QCDevice 第一块数据读取失败，继续后续块: " + ex.getMessage());
                     }
                     return true;
-                })
-                // 块间 1s 节拍后读第二块（110~232；secondBlockGapMs：设备性能要求默认 1000，测试可注入）
-                .thenCompose(v -> polling.delay(secondBlockGapMs).thenCompose(z ->
-                        source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
-                                .thenApply(secondResponse -> {
-                                    try {
-                                        // 处理第二块数据
-                                        short[] secondBlockRegisters = secondResponse.getShortData();
-                                        log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
-                                                Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
-                                        parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-                                        finishReadCycle();
-                                        return true;
-                                    } catch (Exception e) {
-                                        log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
-                                        getAttrs().values()
-                                                .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                        publicAttrsState();
-                                        return false;
-                                    }
-                                })));
+                });
+    }
+
+    /**
+     * 块二读（roundChain 段二，独立源锁事务；110~232）：解析失败标记全属性 MALFUNCTION
+     * 并返回 false（轮结局=业务失败，不静默）；成功收尾 finishReadCycle（派生属性计算
+     * 与发布）。
+     */
+    protected CompletableFuture<Boolean> readSecondBlock(ModbusSource source) {
+        return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
+                .thenApply(secondResponse -> {
+                    try {
+                        // 处理第二块数据
+                        short[] secondBlockRegisters = secondResponse.getShortData();
+                        log.debug("{} 第二块数据: {} 长度: {}", getClass().getSimpleName(),
+                                Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
+                        parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
+                        finishReadCycle();
+                        return true;
+                    } catch (Exception e) {
+                        log.error("{} 第二块数据解析失败: {}", getClass().getSimpleName(), e.getMessage());
+                        getAttrs().values()
+                                .forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return false;
+                    }
+                });
     }
 
     /** 两块读取完成后：计算派生属性、置 NORMAL 并发布 */

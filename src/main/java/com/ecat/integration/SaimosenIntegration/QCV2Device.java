@@ -84,6 +84,7 @@ public class QCV2Device extends SmsDeviceBase {
 
     /**
      * 块二前节拍（毫秒，默认 1000）：设备性能要求——连续读寄存器块之间须留隙。
+     * roundChain 段间 gap：留隙落在源锁临界区之外，不占持锁时长。
      * 包可见，供同包测试注入小值：单测只验证链路语义（三块全读 + finishReadCycle 发布），
      * 节拍本身不是被测对象，生产默认不变。
      */
@@ -111,12 +112,19 @@ public class QCV2Device extends SmsDeviceBase {
     @Override
     public void start() {
         initConfigDerivedAttributeValues();
-        // 周期轮询（pollIntervalMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志全部由 ModbusPolling SDK
-        // 托管（F-23 A 家族形态，同 QCDevice#start；本类为 9629cde 独立实现，合入时对齐
-        // ——core 已把设备 IO 轮询逐出业务池且 IO 禁入，旧 scheduleWithFixedDelay 接线
-        // 无编译出路）。两步构建：round 链内块间 1s/800ms 节拍经 polling.delay(ms) 表达
-        final ModbusPolling polling = ModbusPolling.on(this, modbusSource);
-        polling.round(source -> readRegisters(polling, source))
+        // 周期轮询（pollIntervalMs，生产默认 5s）：调度注册/源锁/锁忙跳过/异常韧性/统一日志
+        // 全部由 ModbusPolling SDK 托管。多段轮（roundChain）：三块读各自独立源锁事务，
+        // 块间 1s/800ms 留隙在源锁临界区之外——设备性能要求的留隙不再变成持锁时长
+        // （旧形态 round 体内 delay 留隙整轮持锁，把写命令的有界等待预算挤爆）。
+        // 块二解析失败 ⇒ 折叠规则中止不追块三（与旧 thenCompose 门语义一致）。
+        ModbusPolling.on(this, modbusSource)
+                .roundChain()
+                .held(this::readFirstBlock)
+                .gap(secondBlockGapMs)
+                .held(this::readSecondBlock)
+                .gap(thirdBlockGapMs)
+                .held(this::readThirdBlock)
+                .end()
                 .every(pollIntervalMs, TimeUnit.MILLISECONDS)
                 .start();
     }
@@ -443,12 +451,11 @@ public class QCV2Device extends SmsDeviceBase {
     }
 
     /**
-     * 定时读取Modbus寄存器数据（SDK 单事务 round：三块读在同源锁内 FIFO 串行，
-     * 块间 1s/800ms 节拍保留——设备性能要求。块一失败不阻断后续块——合入版原为
-     * fire-and-forget 独立事务，异常被丢弃）
+     * 轮段一（块一 0~109）：解析并发布块数据。段体异常 ⇒ SDK 折叠中止不追后续段。
+     * {@code .handle} 吞传输异常继续返回 true——保住旧 fire-and-forget 形态
+     * 「块一失败不阻断后续块」的语义（段间衔接由 roundChain 折叠规则接管）。
      */
-    protected CompletableFuture<Boolean> readRegisters(ModbusPolling polling, ModbusSource source) {
-        // 第一块：0~109
+    protected CompletableFuture<Boolean> readFirstBlock(ModbusSource source) {
         return source.readHoldingRegisters(FIRST_BLOCK_START, FIRST_BLOCK_COUNT)
                 .thenApply(firstResponse -> {
                     try {
@@ -469,47 +476,53 @@ public class QCV2Device extends SmsDeviceBase {
                         log.error("QCV2Device 第一块数据读取失败，继续后续块: " + ex.getMessage());
                     }
                     return true;
-                })
-                // 块间 1s 节拍后读第二块（110~232；secondBlockGapMs：设备性能要求默认 1000，测试可注入）
-                .thenCompose(v -> polling.delay(secondBlockGapMs).thenCompose(z ->
-                        source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
-                                .thenApply(secondResponse -> {
-                                    try {
-                                        short[] secondBlockRegisters = secondResponse.getShortData();
-                                        log.debug("QCV2Device 第二块数据: {} 长度: {}",
-                                                Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
-                                        parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
-                                        updateFilmSwitchTimes(secondBlockRegisters, SECOND_BLOCK_START);
-                                        return true;
-                                    } catch (Exception e) {
-                                        log.error("QCV2Device 第二块数据解析失败: {}", e.getMessage());
-                                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                        publicAttrsState();
-                                        return false;
-                                    }
-                                })))
-                .thenCompose(ok -> {
-                    if (!Boolean.TRUE.equals(ok)) {
-                        return CompletableFuture.completedFuture(false);
+                });
+    }
+
+    /**
+     * 轮段二（块二 110~232）：解析并发布块数据 + 更新调膜时间统计。显式 false 是轮契约
+     * 唯一业务失败标记——旧形态的 {@code !TRUE.equals(ok)} 跳块三门已由 roundChain 折叠
+     * 规则（段二 false ⇒ 不追段三）承载，此处无需再判前段结局。
+     */
+    protected CompletableFuture<Boolean> readSecondBlock(ModbusSource source) {
+        return source.readHoldingRegisters(SECOND_BLOCK_START, SECOND_BLOCK_COUNT)
+                .thenApply(secondResponse -> {
+                    try {
+                        short[] secondBlockRegisters = secondResponse.getShortData();
+                        log.debug("QCV2Device 第二块数据: {} 长度: {}",
+                                Arrays.toString(secondBlockRegisters), secondBlockRegisters.length);
+                        parseBlockData(secondBlockRegisters, SECOND_BLOCK_START);
+                        updateFilmSwitchTimes(secondBlockRegisters, SECOND_BLOCK_START);
+                        return true;
+                    } catch (Exception e) {
+                        log.error("QCV2Device 第二块数据解析失败: {}", e.getMessage());
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return false;
                     }
-                    // 块间 800ms 节拍后读第三块（智能稳压电源 233~273；thirdBlockGapMs 默认 800，测试可注入）
-                    return polling.delay(thirdBlockGapMs).thenCompose(z2 ->
-                            source.readHoldingRegisters(POWER_SUPPLY_BLOCK_START, POWER_SUPPLY_BLOCK_COUNT)
-                                    .thenApply(thirdResponse -> {
-                                        try {
-                                            short[] thirdBlockRegisters = thirdResponse.getShortData();
-                                            log.debug("QCV2Device 第三块数据: {} 长度: {}",
-                                                    Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
-                                            parseBlockData(thirdBlockRegisters, POWER_SUPPLY_BLOCK_START);
-                                            finishReadCycle();
-                                            return true;
-                                        } catch (Exception e) {
-                                            log.error("QCV2Device 第三块数据解析失败: {}", e.getMessage());
-                                            getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
-                                            publicAttrsState();
-                                            return false;
-                                        }
-                                    }));
+                });
+    }
+
+    /**
+     * 轮段三（智能稳压电源 233~273）：解析并发布块数据 + finishReadCycle 收口
+     * （重算统计属性、全表 NORMAL、对外发布）。
+     */
+    protected CompletableFuture<Boolean> readThirdBlock(ModbusSource source) {
+        return source.readHoldingRegisters(POWER_SUPPLY_BLOCK_START, POWER_SUPPLY_BLOCK_COUNT)
+                .thenApply(thirdResponse -> {
+                    try {
+                        short[] thirdBlockRegisters = thirdResponse.getShortData();
+                        log.debug("QCV2Device 第三块数据: {} 长度: {}",
+                                Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
+                        parseBlockData(thirdBlockRegisters, POWER_SUPPLY_BLOCK_START);
+                        finishReadCycle();
+                        return true;
+                    } catch (Exception e) {
+                        log.error("QCV2Device 第三块数据解析失败: {}", e.getMessage());
+                        getAttrs().values().forEach(attr -> attr.setStatus(AttributeStatus.MALFUNCTION));
+                        publicAttrsState();
+                        return false;
+                    }
                 });
     }
 

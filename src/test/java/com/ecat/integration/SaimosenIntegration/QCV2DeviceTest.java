@@ -16,7 +16,6 @@ import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
-import com.ecat.integration.ModbusIntegration.Sdk.ModbusPolling;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
@@ -283,17 +282,15 @@ public class QCV2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockResponse3));
 
         device.markReady();
-        // 直调 round（同包可见）：整链（块间节拍 + 第三块 + finishReadCycle）完成即回。
-        // 节拍经 polling.delay(ms)：同包直调须自备未 start 的构建器实例（生产由
-        // start() 两步构建注入 round）。块间节拍注入 1ms（生产 1s/800ms：设备性能
-        // 要求，链路语义与节拍正交——三块全读+finishReadCycle 断言不受影响）
-        device.secondBlockGapMs = 1L;
-        device.thirdBlockGapMs = 1L;
-        device.readRegisters(ModbusPolling.on(device, mockModbusSource), mockModbusSource)
-                .get(10, TimeUnit.SECONDS);
+        // 直调三段段体（同包可见）：两段 .get() join 串行——三块全读 + finishReadCycle
+        // 完成即回。段体是纯读+发布，不再自含节拍/锁（节拍与锁由 start() 的 roundChain
+        // 在 SDK 层表达），直调无需再自备构建器实例。
+        device.readFirstBlock(mockModbusSource).get(10, TimeUnit.SECONDS);
+        device.readSecondBlock(mockModbusSource).get(10, TimeUnit.SECONDS);
+        device.readThirdBlock(mockModbusSource).get(10, TimeUnit.SECONDS);
 
-        // round 链已被上方 .get(10s) join：finishReadCycle（含 updateCalulateAttr 二次标定写）
-        // 在最内层 thenApply 内先于 future 完成执行，全部 midState 写与 .get() 返回之间
+        // 段链已被上方 .get(10s) join：finishReadCycle（含 updateCalulateAttr 二次标定写）
+        // 在第三段 thenApply 内先于 future 完成执行，全部 midState 写与 .get() 返回之间
         // happens-before——读即终态，就绪是直接可断言的不变量，无需轮询等待（历史形态
         // fire-and-forget 调 readRegisters 无 join，才需要 Thread.sleep(50) 条件轮询）。
         assertAllStatesReady(device,
