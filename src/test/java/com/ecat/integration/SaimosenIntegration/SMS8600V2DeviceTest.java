@@ -30,11 +30,14 @@ import org.mockito.MockitoAnnotations;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -347,6 +350,72 @@ public class SMS8600V2DeviceTest {
                 nextRound.await(300, TimeUnit.MILLISECONDS));
         // 源释放语义按真相源形态迁移：钉住 register 第二参 = 设备自身（RemovalHost 收口接线）
         verify(mockSerialIntegration, times(1)).register(any(), same(sms8600v2Device));
+    }
+
+    @Test
+    public void testStart_RoundChainFiresAllFourCommandsInOrder_explicitFalseContinues() throws Exception {
+        // 段拆分行为等价（对照 HEAD 单事务 round 链）锁两件事：① 四命令按序全发（roundChain
+        // 段序=旧 thenCompose 链序）；② 每步显式 false 不中止后续命令——setUp 默认 stub 下
+        // 应答缓冲为空 ⇒ processResponse 对四步全部返回 false（「应答未被认领」），旧链忽略
+        // 前步结局继续下发，迁移后由段体 thenApply(ok -> TRUE) 中和显式 false 保真同语义。
+        // 节拍注入 1ms（生产 300ms：设备性能要求，链路语义与节拍正交）。
+        List<String> fired = new CopyOnWriteArrayList<>();
+        CountDownLatch allFour = new CountDownLatch(4);
+        when(mockSerialSource.acquirePollingBounded(anyLong()))
+                .thenReturn(CompletableFuture.completedFuture("wire-test-key"));
+        when(mockSerialSource.asyncSendData(any(byte[].class))).thenAnswer(inv -> {
+            fired.add(new String((byte[]) inv.getArgument(0)));
+            allFour.countDown();
+            return CompletableFuture.completedFuture(true);
+        });
+        sms8600v2Device.interCommandGapMs = 1L;
+        sms8600v2Device.pollIntervalMs = 60_000L;   // 单轮观测，不重排
+
+        sms8600v2Device.start();
+        assertTrue("四条读命令必须按序全部下发（显式 false 不中止后续命令）",
+                allFour.await(5, TimeUnit.SECONDS));
+        assertEquals(Arrays.asList("calochr$", "calotwc$", "calppm,?$", "calocha$"), fired);
+
+        sms8600v2Device.stop();
+        sms8600v2Device.cancelManagedTasks();
+    }
+
+    @Test
+    public void testStart_RoundChainTransportExceptionAbortsRemainingCommands() throws Exception {
+        // 对照 HEAD 单事务链的异常门（CF 结构语义，迁移前后同构）：某步传输异常 ⇒ 后续命令
+        // 本轮中止不发；且异常轮后轮询照常推进下一轮（异常韧性契约）。gasSetting 步注入
+        // 异常：两轮各止步于第三条，minuteData（calocha$）始终不得追发。
+        CountDownLatch sixCommands = new CountDownLatch(6);       // 两轮 × 前三条
+        CountDownLatch minuteFired = new CountDownLatch(1);
+        when(mockSerialSource.acquirePollingBounded(anyLong()))
+                .thenReturn(CompletableFuture.completedFuture("wire-test-key"));
+        when(mockSerialSource.asyncSendData(any(byte[].class))).thenAnswer(inv -> {
+            String cmd = new String((byte[]) inv.getArgument(0));
+            if ("calocha$".equals(cmd)) {
+                minuteFired.countDown();
+                return CompletableFuture.completedFuture(true);
+            }
+            sixCommands.countDown();
+            if ("calppm,?$".equals(cmd)) {
+                CompletableFuture<Boolean> failed = new CompletableFuture<>();
+                failed.completeExceptionally(new IllegalStateException("wired transport failure"));
+                return failed;
+            }
+            return CompletableFuture.completedFuture(true);
+        });
+        sms8600v2Device.interCommandGapMs = 1L;
+        sms8600v2Device.pollIntervalMs = 150L;      // 150ms 节拍推进第二轮：正向证「异常轮不注销」
+
+        sms8600v2Device.start();
+        assertTrue("两轮的前三条命令必须发出（real/status/gasSetting）",
+                sixCommands.await(5, TimeUnit.SECONDS));
+        // 负向观察窗（同 SDK 级测试约定）：中止规则生效时 minuteData 在本轮止步即成定局，
+        // 300ms 窗≥2 拍，若中止规则被破坏 minuteData 会在轮内 1ms gap 后立即出现
+        assertFalse("传输异常后不得追发后续命令（minuteData 两轮均须缺席）",
+                minuteFired.await(300, TimeUnit.MILLISECONDS));
+
+        sms8600v2Device.stop();
+        sms8600v2Device.cancelManagedTasks();
     }
 
     @Test

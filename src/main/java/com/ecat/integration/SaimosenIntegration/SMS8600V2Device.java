@@ -26,6 +26,14 @@ public class SMS8600V2Device extends SerialDeviceBase {
     /** 轮询周期（毫秒）。生产=标准采集频率 5s（可经顶层键 poll_interval_sec 配置），load() 覆写；单测注入短周期压缩负向等待窗。 */
     protected long pollIntervalMs = SmsDeviceBase.DEFAULT_POLL_INTERVAL_SEC * 1000L;
 
+    /**
+     * 命令间节拍（毫秒，默认 300）：设备性能要求——四条读命令串行下发，命令之间须留隙。
+     * roundChain 段间 gap：留隙落在源锁临界区之外，不占持锁时长（旧形态把留隙放在
+     * round 体内——留隙整轮持锁、节拍占源锁临界区时长）。包可见，供同包 wiring 测试注入小值：只验证链路
+     * 语义（四命令按序全发 + 失败门），节拍本身不是被测对象，生产默认不变。
+     */
+    long interCommandGapMs = 300L;
+
     public Double molecularWeight = 28.0; //分子质量
 
     @Override
@@ -115,19 +123,23 @@ public class SMS8600V2Device extends SerialDeviceBase {
         // persistable=false 不持久化，重启首轮轮询拿到真实状态即覆盖。
         getAttrs().get("work_status").setDisplayValue(AttributeStatus.NORMAL.getName());
         // 周期轮询（pollIntervalMs，生产默认 5s，可经 poll_interval_sec 配置）：调度注册/事务包裹/
-        // 锁忙消化/异常韧性/统一日志全部由 SerialPolling SDK 托管。两步构建：round 体内以
-        // polling.delay() 表达命令间 300ms 节拍（适应设备性能，收编本地 delay() 助手）
-        final SerialPolling polling = SerialPolling.on(this, serialSource)
+        // 锁忙消化/异常韧性/统一日志全部由 SerialPolling SDK 托管。多段轮（roundChain）：四条
+        // 读命令各自独立源锁事务，命令间 300ms 留隙在源锁临界区之外（旧形态 round 体内
+        // 留隙整轮持锁，把写命令的有界等待预算挤爆）。语义门对照旧链保真：
+        // 旧 thenCompose 链忽略前步结局——显式 false（应答未被 processResponse 认领）不中止
+        // 后续命令，故前三段以 thenApply(ok -> TRUE) 中和显式 false（异常完成不经 thenApply，
+        // 「异常中止后续命令」的 CF 结构语义原样保留）；轮结局仍 = 末段原值。
+        SerialPolling.on(this, serialSource)
+                .roundChain()
+                .held(src -> getRealData().thenApply(ok -> Boolean.TRUE))
+                .gap(interCommandGapMs)
+                .held(src -> getStatusData().thenApply(ok -> Boolean.TRUE))
+                .gap(interCommandGapMs)
+                .held(src -> getGasSetting().thenApply(ok -> Boolean.TRUE))
+                .gap(interCommandGapMs)
+                .held(src -> getMinuteData())
+                .end()
                 .every(pollIntervalMs, TimeUnit.MILLISECONDS)
-                .interCommandDelayMs(300);
-        polling
-                .round(source -> getRealData()
-                        .thenCompose(v -> polling.delay().thenCompose(w ->
-                                getStatusData().thenCompose(x ->
-                                        polling.delay().thenCompose(z ->
-                                                getGasSetting().thenCompose(y ->
-                                                        polling.delay().thenCompose(p ->
-                                                                getMinuteData())))))))
                 .start();
     }
 
