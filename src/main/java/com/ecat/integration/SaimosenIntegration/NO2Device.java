@@ -307,6 +307,10 @@ public class NO2Device extends SmsDeviceBase {
         setAttribute(new NumericAttribute(
                 "case_fan_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
                 1, false, true));
+        // 散热风扇状态
+        setAttribute(new NumericAttribute(
+                "cooling_fan_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),
+                1, false, true));
         // 钼炉加热状态
         setAttribute(new NumericAttribute(
                 "mo_furnace_status", AttributeClass.TEXT, NoConversionUnit.of(""), NoConversionUnit.of(""),

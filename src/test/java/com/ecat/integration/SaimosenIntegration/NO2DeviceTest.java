@@ -188,8 +188,8 @@ public class NO2DeviceTest {
         // 执行初始化
         no2Device.init();
         
-        // 验证属性总数：实际创建了59个属性
-        assertEquals(60, no2Device.getAttrs().size());
+        // 验证属性总数：实际创建了61个属性
+        assertEquals(61, no2Device.getAttrs().size());
         
         // 验证NO浓度相关属性
         assertNotNull(no2Device.getAttrs().get("no"));
@@ -222,6 +222,15 @@ public class NO2DeviceTest {
         
         // 验证命令属性
         assertNotNull(no2Device.getAttrs().get("dispatch_command"));
+    }
+
+    @Test
+    public void testInit_RegistersCoolingFanStatus() throws Exception {
+        no2Device.init();
+
+        // 散热风扇状态必须随 createAttributes 注册：解析侧每轮读 U16 下标 22 并
+        // updateAttribute，漏注册时更新落到未注册名上被静默丢弃，属性面板永远缺失
+        assertNotNull("散热风扇状态属性应该注册", no2Device.getAttrs().get("cooling_fan_status"));
     }
     
     @Test
