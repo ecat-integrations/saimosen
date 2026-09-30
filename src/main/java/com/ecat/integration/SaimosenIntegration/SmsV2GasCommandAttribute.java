@@ -115,8 +115,15 @@ public class SmsV2GasCommandAttribute extends StringCommandAttribute {
         if (config == null) {
             throw new IllegalStateException("Unregistered command type: " + cmdType);
         }
-        log.info("命令{}收到响应{}", cmdType, result);
-        // 与先河 XH*2000BV2 相同：仪器未在校准模式时结束命令会回失败标志，这里收到响应即视为下发成功。
+        if (config.failFlag != null && result.contains(config.failFlag)) {
+            // fa = 设备基于自身当前状态的否决应答（幂等语义，目标态已满足）：已在校准态再收
+            // 校准命令、非校准态收结束命令、校准完成后重复 confirm。设备是状态权威，集成侧
+            // 不做状态镜像；收到协议响应（含 fa）即视为命令送达并被设备裁决成功，传输失败
+            // （无响应/超时）仍走 handleException 返回 false。fa 升 WARN 便于事后取证。
+            log.warn("命令{}收到设备否决应答(按幂等成功处理): {}", cmdType, result);
+        } else {
+            log.info("命令{}收到响应{}", cmdType, result);
+        }
         return true;
     }
 

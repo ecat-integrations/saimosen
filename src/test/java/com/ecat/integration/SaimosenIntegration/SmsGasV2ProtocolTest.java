@@ -7,8 +7,8 @@ import com.ecat.core.Device.RemovalHost;
 import com.ecat.core.EcatCore;
 import com.ecat.core.I18n.ResourceLoader;
 import com.ecat.core.State.AQAttribute;
+import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
-import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StateManager;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
 import com.ecat.integration.SerialIntegration.SerialIntegration;
@@ -24,6 +24,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
@@ -80,6 +81,36 @@ public class SmsGasV2ProtocolTest {
         assertEquals("050", SmsV2GasCommandAttribute.formatSpanConcentration(50));
         assertEquals("400", SmsV2GasCommandAttribute.formatSpanConcentration(400));
         assertEquals("000", SmsV2GasCommandAttribute.formatSpanConcentration(-1));
+    }
+
+    /**
+     * 命令应答契约：fa 是设备基于自身当前状态的否决应答（幂等语义，目标态已满足），
+     * 收到协议响应（含 fa）即视为命令送达并被设备裁决成功；传输失败（无响应/超时）
+     * 仍走 handleException 返回 false，失败面不被掩盖。
+     */
+    @Test
+    public void commandResponseFaIsIdempotentSuccessAndTransportFailureIsFalse() throws Exception {
+        SmsV2GasCommandAttribute commandAttr = new SmsV2GasCommandAttribute(
+                "CALIBRATION_CMD", AttributeClass.DISPATCH_COMMAND, serialSource);
+        commandAttr.registerCommand("ZERO_START", new SmsV2GasCommandAttribute.CommandConfig(
+                "szeros$", "szerosok$", "szerosfa$", SmsV2GasCommandAttribute.CommandType.ZERO_START));
+        Method method = SmsV2GasCommandAttribute.class.getDeclaredMethod(
+                "processResponse", ByteResponseHandlingContext.class);
+        method.setAccessible(true);
+
+        // fa 否决应答 → 仍成功
+        buffer.reset();
+        buffer.write("\r\n#szerosfa$".getBytes());
+        when(context.getNewValue()).thenReturn("ZERO_START".getBytes());
+        assertTrue(Boolean.TRUE.equals(method.invoke(commandAttr, context)));
+
+        // ok 正常应答 → 成功
+        buffer.reset();
+        buffer.write("szerosok$".getBytes());
+        assertTrue(Boolean.TRUE.equals(method.invoke(commandAttr, context)));
+
+        // 传输层失败（无响应/超时经 handleException）→ false
+        assertFalse(commandAttr.handleException(new RuntimeException("timeout")));
     }
 
     @Test
