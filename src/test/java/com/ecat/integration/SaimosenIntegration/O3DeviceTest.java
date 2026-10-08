@@ -21,7 +21,7 @@ import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
-
+import com.serotonin.modbus4j.msg.WriteRegisterResponse;
 import com.serotonin.modbus4j.msg.WriteRegistersResponse;
 import org.junit.After;
 import org.junit.Before;
@@ -229,10 +229,15 @@ public class O3DeviceTest {
     }
 
     private void mockO3Poll(int instrumentStatus, int calibrationStatus) {
+        mockO3Poll(instrumentStatus, calibrationStatus, 400);
+    }
+
+    /** 带跨度校准浓度寄存器读值的轮询打桩（写保护语义测试用：寄存器值可独立于写入值变化）。 */
+    private void mockO3Poll(int instrumentStatus, int calibrationStatus, int spanCalibRegister) {
         short[] mockFloatRegisters = new short[40];
         short[] mockU16Registers = new short[18];
         mockU16Registers[SmsGasInstrumentStatus.U16_INDEX] = (short) instrumentStatus;
-        short[] mockSpanCalibRegisters = new short[] {(short) 400};
+        short[] mockSpanCalibRegisters = new short[] {(short) spanCalibRegister};
         short[] mockCalibRegisters = new short[] {(short) calibrationStatus};
 
         ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
@@ -1156,4 +1161,66 @@ public class O3DeviceTest {
         assertEquals(AttributeStatus.NORMAL.getName(), statusAttr.getState().getValue());
     }
 
-} 
+    /**
+     * 写校准保护语义（bug-record-20261007-220500，与 SO2/NO2 同缺陷形态）：
+     * markCalibrationWrite 由 GasDeviceCommandAttribute 在 0x3EB 写成功后反射调用，
+     * 语义=「刚写完」——保护只应由 2s 时间窗承载，窗口过后属性必须回归跟随寄存器读值，
+     * 否则属性永久钉死首次写入值、后续 SPAN_START 恒重放陈旧浓度。
+     */
+    @Test
+    public void testCalibrationWriteMark_ProtectionExpiresWithGraceWindow_AttrFollowsRegisterAfter() throws Exception {
+        mockO3Poll(0, 0, 2);
+
+        o3Device.markCalibrationWrite(397);
+
+        // 保护窗内：attr 取写入值
+        o3Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+        verifyFloatAttribute("calibration_concentration", 397.0);
+
+        // 确定性推进时间缝：写入时戳拨回 3s 前（2s 保护窗已过），不 sleep
+        setPrivateField(o3Device, "lastCalibrationWriteTime", System.currentTimeMillis() - 3_000L);
+
+        // 窗外：attr 必须跟随寄存器读值——sticky 布尔形态下此处为红（恒 397）
+        o3Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+        verifyFloatAttribute("calibration_concentration", 2.0);
+    }
+
+    /** 写在途期间（isWritingCalibration=true）attr 取目标写入值——锁住在途保护语义不被过度修复删除。 */
+    @Test
+    public void testCalibrationWriteProtection_InFlightWriteHoldsWrittenValue() throws Exception {
+        mockO3Poll(0, 0, 2);
+        setPrivateField(o3Device, "isWritingCalibration", true);
+        setPrivateField(o3Device, "lastWrittenCalibrationValue", 400.0);
+        setPrivateField(o3Device, "lastCalibrationWriteTime", System.currentTimeMillis());
+
+        o3Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+
+        verifyFloatAttribute("calibration_concentration", 400.0);
+    }
+
+    /** 跨度写成功终态后 in-flight 标志必须清除——保护交由 2s 时间窗接管。 */
+    @Test
+    public void testStartSpanCalibration_ClearsInFlightMarkOnSuccess() throws Exception {
+        WriteRegisterResponse okResponse = mock(WriteRegisterResponse.class);
+        when(okResponse.isException()).thenReturn(false);
+        when(mockModbusSource.writeRegister(eq(0x3EB), eq(400)))
+                .thenReturn(CompletableFuture.completedFuture(okResponse));
+
+        assertTrue(o3Device.startSpanCalibration(400).get(5, TimeUnit.SECONDS));
+        assertFalse("span 写成功后 isWritingCalibration 必须清除",
+                (Boolean) getPrivateField(o3Device, "isWritingCalibration"));
+    }
+
+    /** 跨度写失败终态后 in-flight 标志必须清除——attr 回归跟随寄存器。 */
+    @Test
+    public void testStartSpanCalibration_ClearsInFlightMarkOnFailure() throws Exception {
+        CompletableFuture<WriteRegisterResponse> failed = new CompletableFuture<>();
+        failed.completeExceptionally(new RuntimeException("write timeout"));
+        when(mockModbusSource.writeRegister(eq(0x3EB), eq(400))).thenReturn(failed);
+
+        assertFalse(o3Device.startSpanCalibration(400).get(5, TimeUnit.SECONDS));
+        assertFalse("span 写失败后 isWritingCalibration 必须清除",
+                (Boolean) getPrivateField(o3Device, "isWritingCalibration"));
+    }
+
+}

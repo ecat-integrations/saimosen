@@ -21,6 +21,7 @@ import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
+import com.serotonin.modbus4j.msg.WriteRegisterResponse;
 
 import org.junit.After;
 import org.junit.Before;
@@ -1194,10 +1195,15 @@ public class SO2DeviceTest {
     }
 
     private void mockSo2Poll(int instrumentStatus, int calibrationStatus) {
+        mockSo2Poll(instrumentStatus, calibrationStatus, 400);
+    }
+
+    /** 带跨度校准浓度寄存器读值的轮询打桩（写保护语义测试用：寄存器值可独立于写入值变化）。 */
+    private void mockSo2Poll(int instrumentStatus, int calibrationStatus, int spanCalibRegister) {
         short[] mockFloatRegisters = new short[32];
         short[] mockU16Registers = new short[26];
         mockU16Registers[SmsGasInstrumentStatus.U16_INDEX] = (short) instrumentStatus;
-        short[] mockSpanCalibRegisters = new short[] {(short) 400};
+        short[] mockSpanCalibRegisters = new short[] {(short) spanCalibRegister};
         short[] mockCalibRegisters = new short[] {(short) calibrationStatus};
 
         ReadHoldingRegistersResponse mockFloatResponse = mock(ReadHoldingRegistersResponse.class);
@@ -1233,6 +1239,70 @@ public class SO2DeviceTest {
     private boolean isReadonlyDeviceStatusAttr(AttributeBase<?> attr) {
         String id = attr.getAttrID();
         return id.endsWith("_manual_status") || id.endsWith("_status");
+    }
+
+    /**
+     * 写校准保护语义（bug-record-20261007-220500）：
+     * markCalibrationWrite 由 GasDeviceCommandAttribute 在 0x3EB 写成功后反射调用，
+     * 语义=「刚写完」而非「在途写」——保护只应由 2s 时间窗承载，窗口过后属性必须
+     * 回归跟随寄存器读值。sticky 布尔一旦在此处置位且无人清除，属性将永久钉死在
+     * 首次写入值，后续 SPAN_START 恒重放陈旧浓度（CALC7 红③根因）。
+     */
+    @Test
+    public void testCalibrationWriteMark_ProtectionExpiresWithGraceWindow_AttrFollowsRegisterAfter() throws Exception {
+        // 寄存器已跟随主站写入变为 2
+        mockSo2Poll(0, 0, 2);
+
+        so2Device.markCalibrationWrite(397);
+
+        // 保护窗内：attr 取写入值（防读到设备尚未生效的旧寄存器值）
+        so2Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+        verifyFloatAttribute("calibration_concentration", 397.0);
+
+        // 确定性推进时间缝：写入时戳拨回 3s 前（2s 保护窗已过），不 sleep
+        setPrivateField(so2Device, "lastCalibrationWriteTime", System.currentTimeMillis() - 3_000L);
+
+        // 窗外：attr 必须跟随寄存器读值——sticky 布尔形态下此处为红（恒 397）
+        so2Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+        verifyFloatAttribute("calibration_concentration", 2.0);
+    }
+
+    /** 写在途期间（isWritingCalibration=true）attr 取目标写入值，防轮询竞态读到旧寄存器值——锁住在途保护语义不被过度修复删除。 */
+    @Test
+    public void testCalibrationWriteProtection_InFlightWriteHoldsWrittenValue() throws Exception {
+        mockSo2Poll(0, 0, 2);
+        setPrivateField(so2Device, "isWritingCalibration", true);
+        setPrivateField(so2Device, "lastWrittenCalibrationValue", 400.0);
+        setPrivateField(so2Device, "lastCalibrationWriteTime", System.currentTimeMillis());
+
+        so2Device.readAndUpdate(mockModbusSource).get(5, TimeUnit.SECONDS);
+
+        verifyFloatAttribute("calibration_concentration", 400.0);
+    }
+
+    /** 跨度写成功终态后 in-flight 标志必须清除——保护交由 2s 时间窗接管，否则成功路径永久置位。 */
+    @Test
+    public void testStartSpanCalibration_ClearsInFlightMarkOnSuccess() throws Exception {
+        WriteRegisterResponse okResponse = mock(WriteRegisterResponse.class);
+        when(okResponse.isException()).thenReturn(false);
+        when(mockModbusSource.writeRegister(eq(0x3EB), eq(400)))
+                .thenReturn(CompletableFuture.completedFuture(okResponse));
+
+        assertTrue(so2Device.startSpanCalibration(400).get(5, TimeUnit.SECONDS));
+        assertFalse("span 写成功后 isWritingCalibration 必须清除",
+                (Boolean) getPrivateField(so2Device, "isWritingCalibration"));
+    }
+
+    /** 跨度写失败终态后 in-flight 标志必须清除——attr 回归跟随寄存器。 */
+    @Test
+    public void testStartSpanCalibration_ClearsInFlightMarkOnFailure() throws Exception {
+        CompletableFuture<WriteRegisterResponse> failed = new CompletableFuture<>();
+        failed.completeExceptionally(new RuntimeException("write timeout"));
+        when(mockModbusSource.writeRegister(eq(0x3EB), eq(400))).thenReturn(failed);
+
+        assertFalse(so2Device.startSpanCalibration(400).get(5, TimeUnit.SECONDS));
+        assertFalse("span 写失败后 isWritingCalibration 必须清除",
+                (Boolean) getPrivateField(so2Device, "isWritingCalibration"));
     }
 
 

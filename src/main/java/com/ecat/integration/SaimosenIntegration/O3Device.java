@@ -575,11 +575,11 @@ public class O3Device extends SmsDeviceBase {
     }
 
     public CompletableFuture<Boolean> startSpanCalibration(double concentration) {
-        // 设置写入标志，防止竞态条件
+        // 设置写入标志，防止轮询竞态：写在途期间校准浓度属性取目标值而非可能滞后的读值
         isWritingCalibration = true;
         lastWrittenCalibrationValue = concentration;
         lastCalibrationWriteTime = System.currentTimeMillis();
-        
+
         return ModbusTransactionStrategy.executeWithLambda(modbusSource, source -> {
             // 先写入跨度校准浓度
             return source.writeRegister(SEGMENT_CONFIG.get("span_calibration_start").startAddress, (int) concentration)
@@ -587,12 +587,15 @@ public class O3Device extends SmsDeviceBase {
                     log.info("O3Device " + getId() + " - Span calibration started with concentration: " + concentration);
                     return true;
                 });
-        }).exceptionally(throwable -> {
-            log.error("O3Device span calibration failed: " + throwable.getMessage());
-            // 写入失败时清除标志
-            isWritingCalibration = false;
-            return false;
-        });
+        }).whenComplete((result, throwable) -> {
+            if (throwable != null) {
+                log.error("O3Device span calibration failed: " + throwable.getMessage());
+            }
+            // 写入终态（成功或失败）必须清除在途标志：成功路径保护交由 2s 时间窗接管，
+            // 失败路径属性回归跟随寄存器——只挂在失败分支清除会让成功路径永久置位，
+            // 校准浓度属性与设备脱钩（bug-record-20261007-220500）
+            clearCalibrationWriteMark();
+        }).exceptionally(throwable -> false);
     }
 
     public CompletableFuture<Boolean> stopCalibration() {
@@ -679,18 +682,21 @@ public class O3Device extends SmsDeviceBase {
 
     /**
      * 标记校准浓度写入操作（防止竞态条件）
-     * 当外部（如GasDeviceCommandAttribute）写入校准浓度时调用此方法
+     * 当外部（如GasDeviceCommandAttribute）写入校准浓度时调用此方法。
+     * 调用时机=0x3EB 写成功之后（写已终态），故本方法只记录 2s 保护时间窗
+     * （防轮询读到设备尚未生效的旧寄存器值），不置位在途标志——在途标志
+     * 没有对应的清除点，置位即永久钉死校准浓度属性（bug-record-20261007-220500）。
      * @param concentration 写入的校准浓度值
      */
     public void markCalibrationWrite(double concentration) {
-        isWritingCalibration = true;
         lastWrittenCalibrationValue = concentration;
         lastCalibrationWriteTime = System.currentTimeMillis();
         log.debug("O3Device " + getId() + " - Marked calibration write: " + concentration);
     }
 
     /**
-     * 清除校准写入标记（可选，通常依赖时间窗口自动清除）
+     * 清除校准写入标记：跨度写终态（成功或失败）时由 startSpanCalibration 的
+     * whenComplete 统一调用，保证在途标志不跨写入周期存活。
      */
     public void clearCalibrationWriteMark() {
         isWritingCalibration = false;
