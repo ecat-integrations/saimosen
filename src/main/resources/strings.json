@@ -386,6 +386,7 @@
       "chamber_temp_setting": "反应室加热温度设定值",
       "chamber_status": "反应室状态",
       "case_fan_status": "机箱风扇状态",
+      "cooling_fan_status": "制冷风扇状态",
       "alarm_info": "报警信息",
       "general_alarm": "通用报警",
       "general_alarm_options": {
@@ -1229,6 +1230,8 @@
       "temp": "反应室温度",
       "boxtemp": "机箱温度",
       "uvtemp": "紫外灯温度",
+      "slope": "斜率",
+      "intercept": "截距",
       "calibration_concentration": "跨度浓度",
       "calibration_cmd": "气体设备命令",
       "calibration_cmd_commands": {

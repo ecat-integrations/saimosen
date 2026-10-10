@@ -151,6 +151,23 @@ public class SmsGasV2ProtocolTest {
         feed(device, "\r\n1,2,3,4,5,6,7,8$", "oo3twc$");
         assertEquals(7, number(device, "BOXTEMP"), 0.01);
         assertEquals(8, number(device, "UVTEMP"), 0.01);
+        assertEquals(null, device.getAttrs().get("SLOPE").getState());
+    }
+
+    @Test
+    public void o3ParsesTenFieldStatusFromDevice() throws Exception {
+        SMS8400V2Device device = ready(new SMS8400V2Device(entry("sms8400v2")));
+        feed(device, "2101.7,2102.2,2102.2,94.0,858.8,31.6,26.0,50.5,1.0,-0.7$", "oo3twc$");
+        assertEquals(2101.7, number(device, "PMT_V"), 0.01);
+        assertEquals(2102.2, number(device, "CANBI_V"), 0.01);
+        assertEquals(2102.2, number(device, "POWER"), 0.01);
+        assertEquals(94.0, number(device, "PRESS"), 0.01);
+        assertEquals(858.8, number(device, "FLOW"), 0.01);
+        assertEquals(31.6, number(device, "TEMP"), 0.01);
+        assertEquals(26.0, number(device, "BOXTEMP"), 0.01);
+        assertEquals(50.5, number(device, "UVTEMP"), 0.01);
+        assertEquals(1.0, number(device, "SLOPE"), 0.01);
+        assertEquals(-0.7, number(device, "INTERCEPT"), 0.01);
     }
 
     @Test

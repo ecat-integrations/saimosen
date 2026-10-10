@@ -19,7 +19,8 @@ import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandl
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
 
 /**
- * SMS8400V2 臭氧分析仪。串口协议对齐先河 XHOZ2000BV2（{@code oo3chr$} / {@code oo3twc$}）。
+ * SMS8400V2 臭氧分析仪。ASCII 协议，命令 {@code oo3chr$} / {@code oo3twc$}。
+ * 状态帧前 8 段为电压、压力、流量和温度；现场应答末尾再带斜率和截距，共 10 段。
  */
 public class SMS8400V2Device extends SmsV2GasDeviceBase {
 
@@ -69,6 +70,8 @@ public class SMS8400V2Device extends SmsV2GasDeviceBase {
         setAttribute(new NumericAttribute("TEMP", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS, 3, true, false));
         setAttribute(new NumericAttribute("BOXTEMP", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS, 3, true, false));
         setAttribute(new NumericAttribute("UVTEMP", AttributeClass.TEMPERATURE, TemperatureUnit.CELSIUS, TemperatureUnit.CELSIUS, 3, true, false));
+        setAttribute(new NumericAttribute("SLOPE", AttributeClass.NUMERIC, null, null, 5, true, false));
+        setAttribute(new NumericAttribute("INTERCEPT", AttributeClass.O3, AirVolumeUnit.PPB, AirVolumeUnit.PPB, 5, true, false));
 
         setAttribute(new NumericAttribute("CALIBRATION_CONCENTRATION", AttributeClass.O3, AirVolumeUnit.PPB, AirVolumeUnit.PPB, 3, true, true));
 
@@ -157,7 +160,8 @@ public class SMS8400V2Device extends SmsV2GasDeviceBase {
     private void parseStatusResponse(String result) {
         String statusStr = result.replace("$", "");
         String[] parts = statusStr.split(",");
-        if (parts.length != 8) {
+        if (parts.length < 8) {
+            log.warn("O3 status data has less than 8 fields: " + result);
             return;
         }
         AttributeStatus status = determineDataStatus("", "o3_manual_status", null);
@@ -169,6 +173,10 @@ public class SMS8400V2Device extends SmsV2GasDeviceBase {
         updateAttribute("TEMP", parts[5], status);
         updateAttribute("BOXTEMP", parts[6], status);
         updateAttribute("UVTEMP", parts[7], status);
+        if (parts.length >= 10) {
+            updateAttribute("SLOPE", parts[8], status);
+            updateAttribute("INTERCEPT", parts[9], status);
+        }
         publicAttrsState();
     }
 
@@ -180,7 +188,11 @@ public class SMS8400V2Device extends SmsV2GasDeviceBase {
         }
         if (attr instanceof NumericAttribute) {
             try {
-                double value = Double.parseDouble(valueStr);
+                String trimmedValue = valueStr.trim();
+                if ("-".equals(trimmedValue) || "---".equals(trimmedValue)) {
+                    return;
+                }
+                double value = Double.parseDouble(trimmedValue);
                 ((NumericAttribute) attr).updateValue(value, status);
             } catch (NumberFormatException e) {
                 log.error("Value is not numeric for NumericAttribute: " + attrId + " = " + valueStr);
