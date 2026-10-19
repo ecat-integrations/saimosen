@@ -93,9 +93,8 @@ public abstract class SerialDeviceBase extends DeviceBase {
     }
     @Override
     public void release() {
-        // 源关闭已由 register(serialInfo, this) 注册期绑定 RemovalHost（stopWithManagedSweep LIFO 收口，
-        // 晚于轮询停），release 仅清引用，不再手工 closePort
-        serialSource = null;
+        // 源关闭由 register(serialInfo, this) 绑定的 RemovalHost 收割；保留 terminal
+        // SerialSource view，SDK closed 后 fail-fast，release 不再手工 closePort。
     }
 
     protected String checkReadBuffer(String response) {
