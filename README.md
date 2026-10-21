@@ -11,7 +11,7 @@
 | `air.monitor.no2` | SMS8300 | NO2Device | Modbus RTU | NOx 自动分析仪（NO/NO₂/NOx） |
 | `air.monitor.o3` | SMS8400 | O3Device | Modbus RTU | O₃ 自动分析仪 |
 | `air.monitor.qc` | SMS8910 | QCDevice | Modbus RTU | 质控仪（完整协议 V1，起始地址 0~232） |
-| `air.monitor.qc` | SMS8910V2 | QCV2Device | Modbus RTU | 质控仪 V2（完整协议 0~273，含稳压电源参数） |
+| `air.monitor.qc` | SMS8910V2 | QCV2Device | Modbus RTU | 质控仪 V2（完整协议 0~277，含稳压电源与追加参数） |
 | `air.monitor.calibrator` | SMS8600V1 | CalibratorDevice | Modbus RTU | 动态气体校准仪 V1 |
 | `air.monitor.calibrator` | SMS8600V2 | SMS8600V2Device | 串口 | 动态气体校准仪 V2（非 Modbus） |
 | `air.monitor.pm` | SMS8700 | SMS8700PMDevice | Modbus RTU | 多粒径颗粒物自动监测仪  |
@@ -237,7 +237,7 @@ Float 类型参数占 **2 个连续寄存器**，编码为 **BADC 字序**（`co
 
 **Slave ID（示例配置）：1**　**波特率：9600**
 
-Float 参数为大端序，占 2 个连续寄存器；U16 占 1 个寄存器。参数起始地址范围 **0~232**（SMS8910V2 扩展至 **244**）。
+Float 参数为大端序，占 2 个连续寄存器；U16 占 1 个寄存器。参数起始地址范围 **0~232**（SMS8910V2 扩展至 **277**）。
 
 ### 参数寄存器地址（节选）
 
@@ -254,6 +254,9 @@ Float 参数为大端序，占 2 个连续寄存器；U16 占 1 个寄存器。�
 | station_ub | 站房B相电压 | 16 | 0x0010 | Float | 2 | R |
 | station_uc | 站房C相电压 | 18 | 0x0012 | Float | 2 | R |
 | ac1_power | 空调1开机状态 | 46 | 0x002E | U16 | 1 | R/W |
+| no_concentration_qc | NO浓度 | 274 | 0x0112 | Float | 2 | R |
+| ac1_current | 空调1电流 | 276 | 0x0114 | U16 | 1 | R |
+| ac2_current | 空调2电流 | 277 | 0x0115 | U16 | 1 | R |
 | so2_film_changer_status | SO₂换膜状态 | 116 | 0x0074 | U16 | 1 | R |
 
 > 完整参数表见 `QCDevice.initAttributeMap()`（共 200+ 项）。

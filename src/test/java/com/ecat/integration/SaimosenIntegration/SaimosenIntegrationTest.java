@@ -235,7 +235,7 @@ public class SaimosenIntegrationTest {
         assertTrue(qcModels.containsKey(SaimosenQCModels.SMS8910));
         assertTrue(qcModels.containsKey(SaimosenQCModels.SMS8910V2));
         assertTrue(qcModels.get(SaimosenQCModels.SMS8910).contains("完整协议 V1"));
-        assertTrue(qcModels.get(SaimosenQCModels.SMS8910V2).contains("完整协议 V2"));
+        assertTrue(qcModels.get(SaimosenQCModels.SMS8910V2).contains("完整协议 V2，寄存器 0~277"));
         assertEquals(SaimosenIntegration.Protocol.MODBUS.name(),
                 SaimosenIntegration.getProtocolByMode(SaimosenQCModels.SMS8910V2));
     }

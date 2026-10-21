@@ -40,6 +40,7 @@ import com.ecat.integration.ModbusIntegration.Tools;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusUnsignedShortAttribute;
 import com.ecat.integration.ModbusIntegration.EndianConverter.AbstractEndianConverter;
 import com.ecat.integration.ModbusIntegration.EndianConverter.BigEndianConverter;
 
@@ -47,13 +48,13 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * SMS8910 数据采集与质控联动仪完整协议 V2（寄存器 0~273）。
+ * SMS8910 数据采集与质控联动仪完整协议 V2（寄存器 0~277）。
  * <p>
  * 对照文档：SMS8910-YF-02-02201 V1.0（20260815），Modbus 从站地址 01，
  * 读功能码 0x03、写功能码 0x06。独立实现，不继承 {@link QCDevice}。
  * <p>
  * 233~273 为嵌入的智能稳压电源段，U/I/P 缩放与 {@link SmartPowerStabilizer} 一致：
- * U÷10、I÷100、P÷100（kW）。采集温度从 245 起连续，无保留空隙。
+ * U÷10、I÷100、P÷100（kW）。274~277 为 V2 追加的 NO 浓度与空调电流参数。
  *
  * @version V2.2
  */
@@ -65,9 +66,9 @@ public class QCV2Device extends SmsDeviceBase {
     private static final int SECOND_BLOCK_START = 0x6E;
     private static final int SECOND_BLOCK_COUNT = 123;
 
-    private static final int POWER_SUPPLY_BLOCK_START = 233;
-    /** 233~273 共 41 个 U16（与独立稳压器块长度一致） */
-    private static final int POWER_SUPPLY_BLOCK_COUNT = 41;
+    private static final int THIRD_BLOCK_START = 233;
+    /** 233~277：智能稳压电源段 + V2 追加参数，共 45 个 U16 寄存器 */
+    private static final int THIRD_BLOCK_COUNT = 45;
 
     private static final int FILM_SWITCH_TIME_REGS = 5;
     /** 选项 key；显示文案走 strings.json 的 devices.qcv2device.{attr}_options */
@@ -92,7 +93,7 @@ public class QCV2Device extends SmsDeviceBase {
 
     /**
      * 块三前节拍（毫秒，默认 800）：设备性能要求，同 {@link #secondBlockGapMs} 语义
-     * （智能稳压电源块 233~273）。
+     * （块三 233~277）。
      */
     long thirdBlockGapMs = 800L;
 
@@ -141,7 +142,7 @@ public class QCV2Device extends SmsDeviceBase {
     }
 
     /**
-     * 按 SMS8910 质控仪协议表注册 0~273 全部业务寄存器。
+     * 按 SMS8910 质控仪协议表注册 0~277 全部业务寄存器。
      * 52/59（空调故障代码，协议标明空）不建属性。
      * 13（采样管漏水）协议有，当前硬件反馈没使用，暂不建属性。
      */
@@ -255,6 +256,10 @@ public class QCV2Device extends SmsDeviceBase {
         putFloat(231, "pm2_5_working_flow", AttributeClass.FLOW, "PM2.5工况流量", LiterFlowUnit.L_PER_MINUTE, false, 2);
 
         registerSmartPowerSupplyAttributes();
+        // V2 追加参数：NO 浓度沿用本设备 Float 大端字序；空调电流为只读 U16 原值。
+        putFloat(274, "no_concentration_qc", AttributeClass.NO, "NO浓度", AirMassUnit.UGM3, false);
+        putUnsignedU16(276, "ac1_current", AttributeClass.CURRENT, "空调1电流", CurrentUnit.MILLIAMPERE, false);
+        putUnsignedU16(277, "ac2_current", AttributeClass.CURRENT, "空调2电流", CurrentUnit.MILLIAMPERE, false);
         registerConfigDerivedAttributes();
     }
 
@@ -339,6 +344,12 @@ public class QCV2Device extends SmsDeviceBase {
 
     private void putU16(int addr, String id, AttributeClass cls, String name, UnitInfo unit, boolean writable) {
         attributeMap.put(addr, new AttributeInfo(id, cls, name, ModbusDataType.U16, 1, unit, writable, 0));
+    }
+
+    private void putUnsignedU16(int addr, String id, AttributeClass cls, String name, UnitInfo unit,
+            boolean writable) {
+        attributeMap.put(addr, new AttributeInfo(id, cls, name, ModbusDataType.UNSIGNED_U16,
+                1, unit, writable, 0));
     }
 
     private void putBinary(int addr, String id, AttributeClass cls, String name, boolean writable) {
@@ -435,6 +446,12 @@ public class QCV2Device extends SmsDeviceBase {
                         info.unitType, info.unitType, info.displayPrecision, false, info.isWritable,
                         modbusSource, address.shortValue()));
                 break;
+            case UNSIGNED_U16:
+                setAttribute(new ModbusUnsignedShortAttribute(
+                        info.attributeId, info.displayName, info.attrClass,
+                        info.unitType, info.unitType, info.displayPrecision, false, info.isWritable,
+                        modbusSource, address));
+                break;
             case BINARY:
                 setAttribute(new ModbusHoldingBinaryAttribute(
                         info.attributeId, info.displayName, info.attrClass,
@@ -504,17 +521,17 @@ public class QCV2Device extends SmsDeviceBase {
     }
 
     /**
-     * 轮段三（智能稳压电源 233~273）：解析并发布块数据 + finishReadCycle 收口
+     * 轮段三（233~277：智能稳压电源 + V2 追加参数）：解析并发布块数据 + finishReadCycle 收口
      * （重算统计属性、全表 NORMAL、对外发布）。
      */
     protected CompletableFuture<Boolean> readThirdBlock(ModbusSource source) {
-        return source.readHoldingRegisters(POWER_SUPPLY_BLOCK_START, POWER_SUPPLY_BLOCK_COUNT)
+        return source.readHoldingRegisters(THIRD_BLOCK_START, THIRD_BLOCK_COUNT)
                 .thenApply(thirdResponse -> {
                     try {
                         short[] thirdBlockRegisters = thirdResponse.getShortData();
                         log.debug("QCV2Device 第三块数据: {} 长度: {}",
                                 Arrays.toString(thirdBlockRegisters), thirdBlockRegisters.length);
-                        parseBlockData(thirdBlockRegisters, POWER_SUPPLY_BLOCK_START);
+                        parseBlockData(thirdBlockRegisters, THIRD_BLOCK_START);
                         finishReadCycle();
                         return true;
                     } catch (Exception e) {
@@ -596,6 +613,9 @@ public class QCV2Device extends SmsDeviceBase {
                 case U16:
                     updateModbusShortAttribute(info.attributeId, registers[i], status);
                     break;
+                case UNSIGNED_U16:
+                    updateModbusUnsignedShortAttribute(info.attributeId, registers[i], status);
+                    break;
                 case BINARY:
                     updateBinaryAttribute(info.attributeId, registers[i], status);
                     break;
@@ -617,6 +637,13 @@ public class QCV2Device extends SmsDeviceBase {
 
     private void updateModbusShortAttribute(String attributeId, short value, AttributeStatus status) {
         ModbusShortAttribute attr = (ModbusShortAttribute) getAttrs().get(attributeId);
+        if (attr != null) {
+            attr.updateValue(value, status);
+        }
+    }
+
+    private void updateModbusUnsignedShortAttribute(String attributeId, short value, AttributeStatus status) {
+        ModbusUnsignedShortAttribute attr = (ModbusUnsignedShortAttribute) getAttrs().get(attributeId);
         if (attr != null) {
             attr.updateValue(value, status);
         }
@@ -744,6 +771,7 @@ public class QCV2Device extends SmsDeviceBase {
         U16X1,
         U16X10,
         U16X100,
+        UNSIGNED_U16,
         FLOAT,
         BINARY,
         ALARM_SELECT

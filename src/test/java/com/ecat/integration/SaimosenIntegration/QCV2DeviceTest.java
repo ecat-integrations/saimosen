@@ -12,12 +12,16 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.BinaryAttribute;
 import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.Unit.AirMassUnit;
+import com.ecat.core.State.Unit.CurrentUnit;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.ModbusIntegration.ModbusIntegration;
 import com.ecat.integration.ModbusIntegration.ModbusSource;
+import com.ecat.integration.ModbusIntegration.Tools;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusFloatAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusScalableFloatSRAttribute;
 import com.ecat.integration.ModbusIntegration.Attribute.ModbusShortAttribute;
+import com.ecat.integration.ModbusIntegration.Attribute.ModbusUnsignedShortAttribute;
 import com.serotonin.modbus4j.msg.ReadHoldingRegistersResponse;
 
 import org.junit.After;
@@ -39,7 +43,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * QCV2Device 单元测试：独立完整协议 V2（0~273），相对 QCDevice 新增的智能稳压电源协议（233~273）。
+ * QCV2Device 单元测试：独立完整协议 V2（0~277），相对 QCDevice 新增的智能稳压电源协议（233~273）。
  */
 public class QCV2DeviceTest {
 
@@ -159,6 +163,12 @@ public class QCV2DeviceTest {
         assertNotNull(device.getAttrs().get("temp_humidity_comm_status"));
         assertNotNull(device.getAttrs().get("electric_param_comm_status"));
         assertNotNull(device.getAttrs().get("device_address"));
+        assertNotNull(device.getAttrs().get("no_concentration_qc"));
+        assertNotNull(device.getAttrs().get("ac1_current"));
+        assertNotNull(device.getAttrs().get("ac2_current"));
+        assertTrue(device.getAttrs().get("no_concentration_qc") instanceof ModbusFloatAttribute);
+        assertTrue(device.getAttrs().get("ac1_current") instanceof ModbusUnsignedShortAttribute);
+        assertTrue(device.getAttrs().get("ac2_current") instanceof ModbusUnsignedShortAttribute);
         assertTrue(device.getAttrs().get("fan_control") instanceof BinaryAttribute);
         assertTrue(device.getAttrs().get("light_control") instanceof BinaryAttribute);
         assertTrue(device.getAttrs().get("infrared_status") instanceof StringSelectAttribute);
@@ -194,6 +204,9 @@ public class QCV2DeviceTest {
         assertTrue(device.getAttrs().get("over_temp_protection_l1").canValueChange());
         assertFalse(device.getAttrs().get("temp_humidity_comm_status").canValueChange());
         assertFalse(device.getAttrs().get("electric_param_comm_status").canValueChange());
+        assertFalse(device.getAttrs().get("no_concentration_qc").canValueChange());
+        assertFalse(device.getAttrs().get("ac1_current").canValueChange());
+        assertFalse(device.getAttrs().get("ac2_current").canValueChange());
         assertTrue(device.getAttrs().get("fan_control").canValueChange());
         assertTrue(device.getAttrs().get("light_control").canValueChange());
         assertTrue(device.getAttrs().get("zero_gas_relay").canValueChange());
@@ -206,9 +219,12 @@ public class QCV2DeviceTest {
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("o3_concentration_qc").getNativeUnit());
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("co_concentration_qc").getNativeUnit());
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("no2_concentration_qc").getNativeUnit());
+        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("no_concentration_qc").getNativeUnit());
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("so2_concentration_qc").getNativeUnit());
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("pm2_5_concentration").getNativeUnit());
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("pm10_concentration").getNativeUnit());
+        assertEquals(CurrentUnit.MILLIAMPERE, device.getAttrs().get("ac1_current").getNativeUnit());
+        assertEquals(CurrentUnit.MILLIAMPERE, device.getAttrs().get("ac2_current").getNativeUnit());
     }
 
     @Test
@@ -236,7 +252,7 @@ public class QCV2DeviceTest {
         registers2[196 - 110] = 4;
         registers2[197 - 110] = 44;
 
-        short[] registers3 = new short[41];
+        short[] registers3 = new short[45];
         registers3[0] = 2200;
         registers3[1] = 2201;
         registers3[2] = 2202;
@@ -263,6 +279,11 @@ public class QCV2DeviceTest {
         registers3[38] = 1;
         registers3[39] = 1;
         registers3[40] = 2;
+        short[] noConcentrationRegisters = Tools.convertFloatToBigEndianShorts(123.4f);
+        registers3[41] = noConcentrationRegisters[0];
+        registers3[42] = noConcentrationRegisters[1];
+        registers3[43] = 3500;
+        registers3[44] = 4200;
 
         short[] registers1 = QCDeviceTest.parseModbusResponse(
                 QCDeviceTest.hexStringToByteArray(hexData1.replaceAll(" ", "")));
@@ -278,7 +299,7 @@ public class QCV2DeviceTest {
             .thenReturn(CompletableFuture.completedFuture(mockResponse1));
         when(mockModbusSource.readHoldingRegisters(eq(110), eq(123)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse2));
-        when(mockModbusSource.readHoldingRegisters(eq(233), eq(41)))
+        when(mockModbusSource.readHoldingRegisters(eq(233), eq(45)))
             .thenReturn(CompletableFuture.completedFuture(mockResponse3));
 
         device.markReady();
@@ -298,9 +319,10 @@ public class QCV2DeviceTest {
                 "current_l1", "current_l2", "current_l3", "current_l4",
                 "power_l1", "power_l2", "power_l3", "power_l4",
                 "so2_film_changer_status", "o3_film_changer_status", "so2_film_ch1_switch_time",
-                "temperature", "device_address", "relay_l1", "sample_tube_sampling_status");
+                "temperature", "device_address", "relay_l1", "sample_tube_sampling_status",
+                "no_concentration_qc", "ac1_current", "ac2_current");
 
-        verify(mockModbusSource).readHoldingRegisters(eq(233), eq(41));
+        verify(mockModbusSource).readHoldingRegisters(eq(233), eq(45));
 
         assertEquals(11, ((Number) ((ModbusShortAttribute) device.getAttrs().get("so2_film_changer_status")).getState().getValue()).intValue());
         assertEquals(22, ((Number) ((ModbusShortAttribute) device.getAttrs().get("nox_film_changer_status")).getState().getValue()).intValue());
@@ -345,6 +367,20 @@ public class QCV2DeviceTest {
         assertEquals("normal", device.getAttrs().get("electric_param_comm_status").getI18nValue(null));
         assertEquals("正常", device.getAttrs().get("electric_param_comm_status").getDisplayValue());
         assertEquals(2.0f, (Float) ((ModbusScalableFloatSRAttribute) device.getAttrs().get("device_address")).getState().getValue(), 0.01f);
+        assertEquals(123.4f, (Float) ((ModbusFloatAttribute) device.getAttrs().get("no_concentration_qc")).getState().getValue(), 0.01f);
+        assertEquals(3500, ((Number) ((ModbusUnsignedShortAttribute) device.getAttrs().get("ac1_current")).getState().getValue()).intValue());
+        assertEquals(4200, ((Number) ((ModbusUnsignedShortAttribute) device.getAttrs().get("ac2_current")).getState().getValue()).intValue());
+    }
+
+    @Test
+    public void testParseUnsignedCurrentPreservesHighBit() throws Exception {
+        short[] registers = new short[44];
+        registers[43] = (short) 40000;
+
+        invokePrivateMethod(device, "parseBlockData", registers, 233);
+
+        assertEquals(40000, ((Number) ((ModbusUnsignedShortAttribute) device.getAttrs().get("ac1_current"))
+                .getState().getValue()).intValue());
     }
 
     @Test
@@ -428,6 +464,9 @@ public class QCV2DeviceTest {
             TestTools.assertAttributeDisplayName(device, "nox_film_changer_status", "NOx换膜器状态");
             TestTools.assertAttributeDisplayName(device, "so2_film_ch1_switch_time", "SO2换膜器通道1切换时间");
             TestTools.assertAttributeDisplayName(device, "o3_gas_temp", "O3支管温度");
+            TestTools.assertAttributeDisplayName(device, "no_concentration_qc", "NO浓度");
+            TestTools.assertAttributeDisplayName(device, "ac1_current", "空调1电流");
+            TestTools.assertAttributeDisplayName(device, "ac2_current", "空调2电流");
         } finally {
             ResourceLoader.setLoadI18nResources(true);
         }

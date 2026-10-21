@@ -8,7 +8,7 @@ public final class SaimosenQCModels {
     /** 完整协议 V1（寄存器 0~232） */
     public static final String SMS8910 = "SMS8910";
 
-    /** 完整协议 V2（寄存器 0~273，含智能稳压电源四路 U/I/P） */
+    /** 完整协议 V2（寄存器 0~277，含智能稳压电源与 V2 追加参数） */
     public static final String SMS8910V2 = "SMS8910V2";
 
     private SaimosenQCModels() {
