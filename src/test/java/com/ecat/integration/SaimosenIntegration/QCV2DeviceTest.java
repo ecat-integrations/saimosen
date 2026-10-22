@@ -234,6 +234,7 @@ public class QCV2DeviceTest {
         short[] registers2 = new short[123];
         registers2[111 - 110] = 1;
         registers2[115 - 110] = 1;
+        // 换膜器状态：SO2/NOx/CO/O3 共用寄存器 116（读写），四个属性取值一致
         registers2[116 - 110] = 11;
         registers2[117 - 110] = 2026;
         registers2[118 - 110] = 8;
@@ -241,16 +242,13 @@ public class QCV2DeviceTest {
         registers2[120 - 110] = 14;
         registers2[121 - 110] = 30;
         registers2[142 - 110] = 2;
-        registers2[143 - 110] = 22;
         registers2[154 - 110] = 26;
         registers2[155 - 110] = 1;
         registers2[156 - 110] = 2;
         registers2[157 - 110] = 9;
         registers2[158 - 110] = 5;
         registers2[169 - 110] = 3;
-        registers2[170 - 110] = 33;
         registers2[196 - 110] = 4;
-        registers2[197 - 110] = 44;
 
         short[] registers3 = new short[45];
         registers3[0] = 2200;
@@ -318,16 +316,19 @@ public class QCV2DeviceTest {
                 "voltage_l1", "voltage_l2", "voltage_l3", "voltage_l4",
                 "current_l1", "current_l2", "current_l3", "current_l4",
                 "power_l1", "power_l2", "power_l3", "power_l4",
-                "so2_film_changer_status", "o3_film_changer_status", "so2_film_ch1_switch_time",
+                "so2_film_changer_status", "nox_film_changer_status", "co_film_changer_status",
+                "o3_film_changer_status", "so2_film_ch1_switch_time",
                 "temperature", "device_address", "relay_l1", "sample_tube_sampling_status",
                 "no_concentration_qc", "ac1_current", "ac2_current");
 
         verify(mockModbusSource).readHoldingRegisters(eq(233), eq(45));
 
-        assertEquals(11, ((Number) ((ModbusShortAttribute) device.getAttrs().get("so2_film_changer_status")).getState().getValue()).intValue());
-        assertEquals(22, ((Number) ((ModbusShortAttribute) device.getAttrs().get("nox_film_changer_status")).getState().getValue()).intValue());
-        assertEquals(33, ((Number) ((ModbusShortAttribute) device.getAttrs().get("co_film_changer_status")).getState().getValue()).intValue());
-        assertEquals(44, ((Number) ((ModbusShortAttribute) device.getAttrs().get("o3_film_changer_status")).getState().getValue()).intValue());
+        // 四个换膜器状态属性共用寄存器 116，取值相同
+        for (String id : new String[] { "so2_film_changer_status", "nox_film_changer_status",
+                "co_film_changer_status", "o3_film_changer_status" }) {
+            assertEquals(id, 11, ((Number) ((ModbusShortAttribute) device.getAttrs().get(id))
+                    .getState().getValue()).intValue());
+        }
         assertEquals(1, ((Number) ((ModbusShortAttribute) device.getAttrs().get("so2_film_changer_addr")).getState().getValue()).intValue());
         assertEquals(2, ((Number) ((ModbusShortAttribute) device.getAttrs().get("nox_film_changer_addr")).getState().getValue()).intValue());
         assertEquals("2026-08-15 14:30", device.getAttrs().get("so2_film_ch1_switch_time").getDisplayValue());

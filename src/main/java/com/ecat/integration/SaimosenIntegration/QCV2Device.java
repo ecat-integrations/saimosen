@@ -77,6 +77,11 @@ public class QCV2Device extends SmsDeviceBase {
     private final BigEndianConverter bigConverter = AbstractEndianConverter.getBigEndianConverter();
 
     private final Map<Integer, AttributeInfo> attributeMap = new HashMap<>();
+    /**
+     * 同一寄存器挂多个属性（attributeMap 一个地址只放得下一个）：
+     * 换膜器状态只有 116 一个寄存器，SO2/NOx/CO/O3 四个状态属性共用该地址。
+     */
+    private final Map<Integer, List<AttributeInfo>> sharedAddressAttributes = new HashMap<>();
     /** 换膜通道年月日时分合成后的单个时间参数，不进入 attributeMap，避免拆成 5 个数字属性。 */
     private final List<FilmSwitchTimeSpec> filmSwitchTimes = new ArrayList<>();
 
@@ -270,18 +275,19 @@ public class QCV2Device extends SmsDeviceBase {
     private void registerFilmChangers() {
         putU16(115, "so2_film_changer_addr", AttributeClass.ADDRESS, "SO2换膜器地址", null, true);
         putU16(116, "so2_film_changer_status", AttributeClass.STATUS, "SO2换膜器状态", null, true);
+        // 换膜器状态只有 116 一个读写寄存器，其余通道状态共用它，取值一致
+        putSharedU16(116, "nox_film_changer_status", AttributeClass.STATUS, "NOx换膜器状态", null, true);
+        putSharedU16(116, "co_film_changer_status", AttributeClass.STATUS, "CO换膜器状态", null, true);
+        putSharedU16(116, "o3_film_changer_status", AttributeClass.STATUS, "O3换膜器状态", null, true);
         putFilmSwitchTimes(117, "so2_film", "SO2换膜器", 1, 5);
 
         putU16(142, "nox_film_changer_addr", AttributeClass.ADDRESS, "NOx换膜器地址", null, true);
-        putU16(143, "nox_film_changer_status", AttributeClass.STATUS, "NOx换膜器状态", null, true);
         putFilmSwitchTimes(154, "nox_film", "NOx换膜器", 3, 5);
 
         putU16(169, "co_film_changer_addr", AttributeClass.ADDRESS, "CO换膜器地址", null, true);
-        putU16(170, "co_film_changer_status", AttributeClass.STATUS, "CO换膜器状态", null, true);
         putFilmSwitchTimes(171, "co_film", "CO换膜器", 1, 5);
 
         putU16(196, "o3_film_changer_addr", AttributeClass.ADDRESS, "O3换膜器地址", null, true);
-        putU16(197, "o3_film_changer_status", AttributeClass.STATUS, "O3换膜器状态", null, true);
         putFilmSwitchTimes(198, "o3_film", "O3换膜器", 1, 5);
     }
 
@@ -346,6 +352,13 @@ public class QCV2Device extends SmsDeviceBase {
         attributeMap.put(addr, new AttributeInfo(id, cls, name, ModbusDataType.U16, 1, unit, writable, 0));
     }
 
+    /** 同 {@link #putU16}，但允许多个属性共用同一个寄存器地址。 */
+    private void putSharedU16(int addr, String id, AttributeClass cls, String name, UnitInfo unit,
+            boolean writable) {
+        sharedAddressAttributes.computeIfAbsent(addr, key -> new ArrayList<>())
+                .add(new AttributeInfo(id, cls, name, ModbusDataType.U16, 1, unit, writable, 0));
+    }
+
     private void putUnsignedU16(int addr, String id, AttributeClass cls, String name, UnitInfo unit,
             boolean writable) {
         attributeMap.put(addr, new AttributeInfo(id, cls, name, ModbusDataType.UNSIGNED_U16,
@@ -407,6 +420,11 @@ public class QCV2Device extends SmsDeviceBase {
     private void createAttributes() {
         for (Map.Entry<Integer, AttributeInfo> entry : attributeMap.entrySet()) {
             createAttribute(entry.getValue(), entry.getKey());
+        }
+        for (Map.Entry<Integer, List<AttributeInfo>> entry : sharedAddressAttributes.entrySet()) {
+            for (AttributeInfo info : entry.getValue()) {
+                createAttribute(info, entry.getKey());
+            }
         }
         for (FilmSwitchTimeSpec spec : filmSwitchTimes) {
             setAttribute(new TextAttribute(spec.attributeId, spec.displayName,
@@ -593,6 +611,13 @@ public class QCV2Device extends SmsDeviceBase {
         AttributeStatus status = AttributeStatus.NORMAL;
         for (int i = 0; i < registers.length; i++) {
             int address = startAddress + i;
+            // 同址多属性（换膜器状态 116）：主属性之外还要把值写给共用该地址的属性
+            List<AttributeInfo> sharedInfos = sharedAddressAttributes.get(address);
+            if (sharedInfos != null) {
+                for (AttributeInfo sharedInfo : sharedInfos) {
+                    updateModbusShortAttribute(sharedInfo.attributeId, registers[i], status);
+                }
+            }
             AttributeInfo info = attributeMap.get(address);
             if (info == null) {
                 continue;
