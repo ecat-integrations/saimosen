@@ -20,6 +20,7 @@ import com.ecat.core.State.NumericAttribute;
 import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.TextAttribute;
 import com.ecat.core.State.Unit.AirMassUnit;
+import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.Unit.CurrentUnit;
 import com.ecat.core.State.Unit.FrequencyUnit;
 import com.ecat.core.State.Unit.LiterFlowUnit;
@@ -232,10 +233,11 @@ public class QCV2Device extends SmsDeviceBase {
 
         putU16(101, "pm2_5_concentration", AttributeClass.PM2_5, "PM2.5浓度", AirMassUnit.UGM3, false);
         putU16(102, "pm10_concentration", AttributeClass.PM10, "PM10浓度", AirMassUnit.UGM3, false);
-        putFloat(103, "o3_concentration_qc", AttributeClass.O3, "O3浓度", AirMassUnit.UGM3, false);
-        putU16(105, "co_concentration_qc", AttributeClass.CO, "CO浓度", AirMassUnit.UGM3, false);
-        putFloat(106, "no2_concentration_qc", AttributeClass.NO2, "NO2浓度", AirMassUnit.UGM3, false);
-        putFloat(108, "so2_concentration_qc", AttributeClass.SO2, "SO2浓度", AirMassUnit.UGM3, false);
+        // 气体浓度：设备寄存器原始值即体积浓度 ppm（与 SMS8910 V1 一致），不做质量浓度换算
+        putFloat(103, "o3_concentration_qc", AttributeClass.O3, "O3浓度", AirVolumeUnit.PPM, false);
+        putU16(105, "co_concentration_qc", AttributeClass.CO, "CO浓度", AirVolumeUnit.PPM, false);
+        putFloat(106, "no2_concentration_qc", AttributeClass.NO2, "NO2浓度", AirVolumeUnit.PPM, false);
+        putFloat(108, "so2_concentration_qc", AttributeClass.SO2, "SO2浓度", AirVolumeUnit.PPM, false);
 
         putU16(110, "sample_tube_addr", AttributeClass.ADDRESS, "采样管地址", null, true);
         putBinary(111, "sample_tube_sampling_status", AttributeClass.SAMPLING_STATUS, "采样管采样状态", true);
@@ -262,7 +264,7 @@ public class QCV2Device extends SmsDeviceBase {
 
         registerSmartPowerSupplyAttributes();
         // V2 追加参数：NO 浓度沿用本设备 Float 大端字序；空调电流为只读 U16 原值。
-        putFloat(274, "no_concentration_qc", AttributeClass.NO, "NO浓度", AirMassUnit.UGM3, false);
+        putFloat(274, "no_concentration_qc", AttributeClass.NO, "NO浓度", AirVolumeUnit.PPM, false);
         putUnsignedU16(276, "ac1_current", AttributeClass.CURRENT, "空调1电流", CurrentUnit.MILLIAMPERE, false);
         putUnsignedU16(277, "ac2_current", AttributeClass.CURRENT, "空调2电流", CurrentUnit.MILLIAMPERE, false);
         registerConfigDerivedAttributes();

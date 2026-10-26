@@ -12,6 +12,7 @@ import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.BinaryAttribute;
 import com.ecat.core.State.StringSelectAttribute;
 import com.ecat.core.State.Unit.AirMassUnit;
+import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.core.State.Unit.CurrentUnit;
 import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
@@ -215,12 +216,14 @@ public class QCV2DeviceTest {
     }
 
     @Test
-    public void testGasConcentrationUnitsAreUgM3() {
-        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("o3_concentration_qc").getNativeUnit());
-        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("co_concentration_qc").getNativeUnit());
-        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("no2_concentration_qc").getNativeUnit());
-        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("no_concentration_qc").getNativeUnit());
-        assertEquals(AirMassUnit.UGM3, device.getAttrs().get("so2_concentration_qc").getNativeUnit());
+    public void testGasConcentrationUnitsArePpm() {
+        // 气体浓度体积单位：设备寄存器原始值即 ppm
+        assertEquals(AirVolumeUnit.PPM, device.getAttrs().get("o3_concentration_qc").getNativeUnit());
+        assertEquals(AirVolumeUnit.PPM, device.getAttrs().get("co_concentration_qc").getNativeUnit());
+        assertEquals(AirVolumeUnit.PPM, device.getAttrs().get("no2_concentration_qc").getNativeUnit());
+        assertEquals(AirVolumeUnit.PPM, device.getAttrs().get("no_concentration_qc").getNativeUnit());
+        assertEquals(AirVolumeUnit.PPM, device.getAttrs().get("so2_concentration_qc").getNativeUnit());
+        // 颗粒物仍为质量浓度
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("pm2_5_concentration").getNativeUnit());
         assertEquals(AirMassUnit.UGM3, device.getAttrs().get("pm10_concentration").getNativeUnit());
         assertEquals(CurrentUnit.MILLIAMPERE, device.getAttrs().get("ac1_current").getNativeUnit());
