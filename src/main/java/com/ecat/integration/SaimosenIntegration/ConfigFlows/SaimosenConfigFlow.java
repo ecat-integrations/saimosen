@@ -31,6 +31,7 @@ import com.ecat.core.Utils.DateTimeUtils;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusCommTypeSchema;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusRtuCommConfigSchema;
 import com.ecat.integration.ModbusIntegration.ConfigSchemas.ModbusTcpCommConfigSchema;
+import com.ecat.integration.SaimosenIntegration.SMS8240Device;
 import com.ecat.integration.SaimosenIntegration.SaimosenIntegration;
 import com.ecat.integration.SaimosenIntegration.SmsDeviceBase;
 import com.ecat.integration.SerialIntegration.ConfigSchemas.SerialCommConfigSchema;
@@ -68,6 +69,9 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     /** 采样管设备类型标识 */
     private static final String SAMPLE_TUBE_CLASS = "sample.tube";
 
+    /** 颗粒物零点校验仪设备类型标识（SMS8240 双路机型下有独立的流量配置步）。 */
+    private static final String PM_ZERO_CHECK_CLASS = "air.monitor.pm.qc";
+
     public SaimosenConfigFlow() {
         super();
 
@@ -76,6 +80,7 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
 
         registerStep("device_config", this::stepDeviceConfig, "设备配置");
         registerStep("device_mode_config", this::stepDeviceModeConfig, "设备型号选择");
+        registerStep("flow_config", this::stepFlowConfig, "流量单位配置");
         registerStep("qc_config", this::stepQcConfig, "质控仪配置");
         registerStep("tube_config", this::stepTubeConfig, "采样管配置");
         registerStep("protocol_select", this::stepProtocolSelect, "协议选择");
@@ -160,6 +165,12 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         if (pollIntervalSec != null && !pollIntervalSec.toString().trim().isEmpty()) {
             context.getEntryData().put("poll_interval_sec", pollIntervalSec);
         }
+        // SMS8240 双路零点校验仪：仪表流量单位由现场设定（协议只写"单位同仪表"），
+        // 平台必须显式收集，否则物理属性无从声明真实单位、逻辑层换算会静默错档
+        if (PM_ZERO_CHECK_CLASS.equals(deviceClass)
+                && SMS8240Device.MODEL.equals(userInput.get("model"))) {
+            return showForm("flow_config", createFlowConfigSchema(), new HashMap<>());
+        }
         // 质控仪需要额外配置采样管长度和内径
         if (QC_CLASS.equals(deviceClass)) {
             return showForm("qc_config", createQcConfigSchema(), new HashMap<>());
@@ -176,6 +187,31 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         }
         return showForm("protocol_select", protocolSchema, new HashMap<>());
     }
+    /**
+     * 颗粒物零点校验仪（SMS8240）专用配置步骤 - 仪表流量单位与启动回正开关。
+     *
+     * <p>协议 只规定"单位同仪表"，板子不做换算；平台把用户所选单位的原始 float
+     * 声明为物理属性单位，再由逻辑层统一换算到 L/min。填错单位=流量读数整体错档，
+     * 因此本步必填并在说明中给出 m³/h ↔ L/min 的换算式。
+     */
+    private ConfigFlowResult stepFlowConfig(Map<String, Object> userInput) {
+        ConfigSchema schema = createFlowConfigSchema();
+        if (userInput == null || userInput.isEmpty()) {
+            return showForm("flow_config", schema, new HashMap<>());
+        }
+        Map<String, Object> errors = schema.validate(userInput);
+        if (!errors.isEmpty()) {
+            return showForm("flow_config", schema, errors);
+        }
+        context.getEntryData().put("flow_unit", userInput.get("flow_unit"));
+        Object restoreOpen = userInput.get("restore_open_on_start");
+        if (restoreOpen != null && !restoreOpen.toString().trim().isEmpty()) {
+            context.getEntryData().put("restore_open_on_start", Boolean.valueOf(restoreOpen.toString()));
+        }
+        // SMS8240 仅支持 Modbus（RTU/TCP），直接进入协议类型选择
+        return showForm("protocol_select", new ModbusCommTypeSchema().createSchema(), new HashMap<>());
+    }
+
     /**
      * 质控仪专用配置步骤 - 采样管长度
      */
@@ -385,6 +421,32 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
     }
 
     /**
+     * 创建 SMS8240 流量配置 Schema。
+     *
+     * <p>选项值统一使用 {@link LiterFlowUnit#getName()} 的单位符号（与 strings/单位展示同形），
+     * 解析端 {@code SMS8240Device.parseFlowUnit} 同时接受符号与枚举名，YAML 可读性与兼容性兼得。
+     */
+    private ConfigSchema createFlowConfigSchema() {
+        return new ConfigSchema()
+            .addField(new TextConfigItem("flow_unit_tip", false,
+                "请选择仪表实际输出的流量单位（协议 只写\"单位同仪表\"，不做换算）。\n"
+                    + "· 1 m³/h ≈ 16.67 L/min；1 L/h ≈ 0.0167 L/min\n"
+                    + "· 平台按所选单位换算为 L/min 后在逻辑层统一显示，选错会导致流量整体错档")
+                .displayName("流量单位说明"))
+            .addField(new EnumConfigItem("flow_unit", true)
+                .displayName("仪表流量单位")
+                .addOption("L/min", "L/min（升每分钟）")
+                .addOption("m³/h", "m³/h（立方米每小时）")
+                .addOption("L/h", "L/h（升每小时）")
+                .addOption("L/s", "L/s（升每秒）")
+                .addOption("ml/min", "ml/min（毫升每分钟）")
+                .defaultValue("L/min")
+                .buildValidator())
+            .addField(new BooleanConfigItem("restore_open_on_start", false, true)
+                .displayName("启动时自动恢复贯通"));
+    }
+
+    /**
      * 创建采样管专用配置 Schema（采样管长度和内径）
      */
     private ConfigSchema createTubeConfigSchema() {
@@ -434,6 +496,15 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         if (isGasAnalyzer(deviceClass)) {
             schema.addField(new TextConfigItem("gas_model_tip", false, gasModelTip(deviceClass))
                     .displayName("气态协议版本说明"));
+        }
+        if (PM_ZERO_CHECK_CLASS.equals(deviceClass)) {
+            schema.addField(new TextConfigItem("pm_qc_model_tip", false,
+                    "型号说明：\n"
+                        + "· SMS8220：单路颗粒物零点校验仪。\n"
+                        + "· SMS8240：双路颗粒物零点校验仪；"
+                        + "含两路矫正标况/工况流量、两路管路控制（0=贯通、1=关闭）与采集状态；"
+                        + "选此型号需填写仪表流量单位。")
+                    .displayName("颗粒物质控型号说明"));
         }
         // 采集间隔按机型分档预填（字段自 device_config 步挪入本步）：渲染本步时 class 已知，
         // 单型号类型号唯一确定（如 air.monitor.pm → SMS8700，出厂档 10s），按该机型分档预填；
@@ -582,6 +653,8 @@ public class SaimosenConfigFlow extends AbstractConfigFlow {
         displayData.remove("qc_config_label");
         displayData.remove("qc_model_tip");
         displayData.remove("gas_model_tip");
+        displayData.remove("pm_qc_model_tip");
+        displayData.remove("flow_unit_tip");
 
         return new ConfigSchema()
             .addField(new YamlConfigItem("config_summary")

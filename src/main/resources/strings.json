@@ -889,6 +889,37 @@
         "zero_check_stop": "零点检查停止"
       }
     },
+    "sms8240device": {
+      "pm10_corrected_std_flow": "PM10矫正标况流量",
+      "pm10_working_flow": "PM10工况流量",
+      "pm2_5_corrected_std_flow": "PM2.5矫正标况流量",
+      "pm2_5_working_flow": "PM2.5工况流量",
+      "pm10_raw_std_flow": "PM10原始标况流量",
+      "pm2_5_raw_std_flow": "PM2.5原始标况流量",
+      "pm10_pipe_state": "PM10管路状态",
+      "pm10_pipe_state_options": {
+        "0": "贯通",
+        "1": "关闭"
+      },
+      "pm2_5_pipe_state": "PM2.5管路状态",
+      "pm2_5_pipe_state_options": {
+        "0": "贯通",
+        "1": "关闭"
+      },
+      "pm10_target_address": "PM10采集目标地址",
+      "pm2_5_target_address": "PM2.5采集目标地址",
+      "pm10_collect_status": "PM10采集状态",
+      "pm10_collect_status_options": {
+        "0": "无效",
+        "1": "有效"
+      },
+      "pm2_5_collect_status": "PM2.5采集状态",
+      "pm2_5_collect_status_options": {
+        "0": "无效",
+        "1": "有效"
+      },
+      "board_slave_address": "采集板地址"
+    },
     "sms8700pmdevice": {
       "pm1": "PM1浓度",
       "pm2_5": "PM2.5浓度",

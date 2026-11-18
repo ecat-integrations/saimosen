@@ -17,6 +17,7 @@
 package com.ecat.integration.SaimosenIntegration.ConfigSchemas;
 
 import com.ecat.core.ConfigFlow.ConfigItem.EnumConfigItem;
+import com.ecat.core.ConfigFlow.ConfigItem.BooleanConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.FloatConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.NumericConfigItem;
 import com.ecat.core.ConfigFlow.ConfigItem.TextConfigItem;
@@ -72,6 +73,18 @@ public class SaimosenDeviceConfigSchema implements ConfigSchemaProvider {
                 .range(0, 100))
             .addField(new FloatConfigItem("sampling_tube_inner_diameter", false)
                 .displayName("采样管内径(m)")
-                .range(0, 10));
+                .range(0, 10))
+            // SMS8240 双路颗粒物零点校验仪：仪表流量单位（协议只写"单位同仪表"）
+            .addField(new EnumConfigItem("flow_unit", false, "L/min")
+                .displayName("仪表流量单位")
+                .addOption("L/min")
+                .addOption("m³/h")
+                .addOption("L/h")
+                .addOption("L/s")
+                .addOption("ml/min")
+                .buildValidator())
+            // 平台重启但板子未断电时，板子会停在"关闭"：启动后延迟回正贯通（可关闭）
+            .addField(new BooleanConfigItem("restore_open_on_start", false, true)
+                .displayName("启动时自动恢复贯通"));
     }
 }

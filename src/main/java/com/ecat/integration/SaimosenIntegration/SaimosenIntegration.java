@@ -89,10 +89,12 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
         pmMap.put(SMS8700PMDevice.MODEL, "SMS8700（多粒径颗粒物自动监测仪）");
         MODEL_PROTOCOL_MAP.put(SMS8700PMDevice.MODEL, Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.pm", pmMap);
-        // PM 零点校验仪
-        Map<String, String> pmQcMap = new HashMap<>();
-        pmQcMap.put("SMS8220", "SMS8220");
+        // PM 零点校验仪：SMS8220（单路）/ SMS8240（双路）
+        Map<String, String> pmQcMap = new LinkedHashMap<>();
+        pmQcMap.put("SMS8220", "SMS8220（单路颗粒物零点校验仪）");
         MODEL_PROTOCOL_MAP.put("SMS8220", Protocol.MODBUS.name());
+        pmQcMap.put(SMS8240Device.MODEL, "SMS8240（双路颗粒物零点校验仪）");
+        MODEL_PROTOCOL_MAP.put(SMS8240Device.MODEL, Protocol.MODBUS.name());
         CLASS_MODEL_MAP.put("air.monitor.pm.qc", pmQcMap);
         // 校准仪（多型号示例）
         Map<String, String> calibratorMap = new HashMap<>();
@@ -164,7 +166,13 @@ public class SaimosenIntegration extends IntegrationDeviceBase {
                     device = new SMS8700PMDevice(entry);
                     break;
                 case AIR_MONITOR_PM_QC:
-                    device = new ParticulateZeroChecker(entry);
+                    // SMS8240 为独立双路机型（寄存器/端序/管路语义均与 SMS8220 不同），
+                    // 未显式选型号时保持既有 SMS8220 分支零变化
+                    if (SMS8240Device.MODEL.equals(model)) {
+                        device = new SMS8240Device(entry);
+                    } else {
+                        device = new ParticulateZeroChecker(entry);
+                    }
                     break;
                 case AIR_MONITOR_O3:
                     if ("SMS8400V2".equals(model)) {
