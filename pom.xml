@@ -8,19 +8,19 @@
     <relativePath />
   </parent>
   <artifactId>integration-saimosen</artifactId>
-  <version>4.0.0</version>
+  <version>4.1.0</version>
   <name>integration-saimosen</name>
   <dependencies>
     <dependency>
       <groupId>com.ecat</groupId>
       <artifactId>integration-modbus</artifactId>
-      <version>4.0.0</version>
+      <version>4.1.0</version>
       <scope>provided</scope>
     </dependency>
       <dependency>
           <groupId>com.ecat</groupId>
           <artifactId>integration-serial</artifactId>
-          <version>4.0.0</version>
+          <version>4.1.0</version>
           <scope>provided</scope>
       </dependency>
     <dependency>

@@ -8,6 +8,7 @@ import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.integration.SerialIntegration.SerialSource;
+import com.ecat.integration.SerialIntegration.SerialSourceSubmitBridge;
 
 import org.junit.After;
 import org.junit.Before;
@@ -22,7 +23,6 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>被测因果链一环：「IO 成功 → 平台发布」。此前该属性自拼 CF 只做 IO 不做任何本地收尾：
  * 设备已改、平台属性值/总线事件纹丝不动（ADM 监控/告警/下游绑定逻辑属性失明到下一轮询）。
- * mocked SerialSource（acquire/release/send/read 受控），legacy 响应模式（测试栈自动侦测），
+ * mocked SerialSource（submitTransaction 提交缝经同包测试桥装配，send/read 受控），legacy 响应模式（测试栈自动侦测），
  * 确定性同步（future.get + 受控 read future，禁 sleep 等待）。
  */
 public class SMS8600V2CylinderGasWriteGateTest {
@@ -65,9 +65,9 @@ public class SMS8600V2CylinderGasWriteGateTest {
             return null;
         }).when(mockBus).publish(any());
 
-        // 写事务锁：executeWithLambda 走 acquire/release（mocked 源直接授予）
-        when(mockSerialSource.acquire()).thenReturn("write-key");
-        when(mockSerialSource.release(anyString())).thenReturn(true);
+        // P1 新语义：写链经 executeWithLambda→submitTransaction 提交（包私有提交缝经
+        // 同包测试桥装配），inline 档=提交即执行事务体（等价旧 acquire 立即授予装配）
+        SerialSourceSubmitBridge.inlineSubmitTransaction(mockSerialSource);
         when(mockSerialSource.asyncSendData(any(byte[].class)))
                 .thenReturn(CompletableFuture.completedFuture(Boolean.TRUE));
         when(mockSerialSource.asyncReadDataBytes()).thenAnswer(inv ->

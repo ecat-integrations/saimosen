@@ -18,6 +18,7 @@ import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.SerialIntegration.SerialIntegration;
 import com.ecat.integration.SerialIntegration.SerialSource;
+import com.ecat.integration.SerialIntegration.SerialSourceSubmitBridge;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlerStrategy;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
 
@@ -41,7 +42,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 /**
@@ -309,7 +309,7 @@ public class SMS8600V2DeviceTest {
         // 18 号迁移后句柄不经设备持有（SDK 内绑 onRemove）：以 round 入口探针证轮询已注册运行
         CountDownLatch firstRound = pollingRoundProbe(1);
         sms8600v2Device.start();
-        assertTrue("start 后首轮轮询必须发起（探针=executePolling 首访 acquirePollingBounded）",
+        assertTrue("start 后首轮轮询必须发起（探针=executePolling 提交点）",
                 firstRound.await(8, TimeUnit.SECONDS));
     }
 
@@ -361,8 +361,8 @@ public class SMS8600V2DeviceTest {
         // 节拍注入 1ms（生产 300ms：设备性能要求，链路语义与节拍正交）。
         List<String> fired = new CopyOnWriteArrayList<>();
         CountDownLatch allFour = new CountDownLatch(4);
-        when(mockSerialSource.acquirePollingBounded(anyLong()))
-                .thenReturn(CompletableFuture.completedFuture("wire-test-key"));
+        // P1 新语义：轮体执行=submitTransaction inline 档（提交即执行事务体，等价旧授予桩）
+        SerialSourceSubmitBridge.inlineSubmitTransaction(mockSerialSource);
         when(mockSerialSource.asyncSendData(any(byte[].class))).thenAnswer(inv -> {
             fired.add(new String((byte[]) inv.getArgument(0)));
             allFour.countDown();
@@ -387,8 +387,8 @@ public class SMS8600V2DeviceTest {
         // 异常：两轮各止步于第三条，minuteData（calocha$）始终不得追发。
         CountDownLatch sixCommands = new CountDownLatch(6);       // 两轮 × 前三条
         CountDownLatch minuteFired = new CountDownLatch(1);
-        when(mockSerialSource.acquirePollingBounded(anyLong()))
-                .thenReturn(CompletableFuture.completedFuture("wire-test-key"));
+        // P1 新语义：轮体执行=submitTransaction inline 档（提交即执行事务体，等价旧授予桩）
+        SerialSourceSubmitBridge.inlineSubmitTransaction(mockSerialSource);
         when(mockSerialSource.asyncSendData(any(byte[].class))).thenAnswer(inv -> {
             String cmd = new String((byte[]) inv.getArgument(0));
             if ("calocha$".equals(cmd)) {
@@ -1261,13 +1261,15 @@ public class SMS8600V2DeviceTest {
     }
     // ==================== 轮询观测垫片（18 号迁移：句柄字段已删，经 round 入口探针观测） ====================
 
-    /** round 入口探针：executePolling 每轮首访 acquirePollingBounded——null 完成=锁忙跳过（零业务副作用）。 */
+    /**
+     * round 入口探针（P1 新语义）：每轮事务经 executePolling→submitTransaction 提交，
+     * 探针桩=提交点计数 + 对话以 LockBusySkippedException 失败完成（executePolling
+     * 预算耗尽真源形态，经同包测试桥装配）——锁忙跳过语义与旧「null 完成」等价
+     * （零业务副作用）。
+     */
     private CountDownLatch pollingRoundProbe(int rounds) {
         CountDownLatch latch = new CountDownLatch(rounds);
-        when(mockSerialSource.acquirePollingBounded(anyLong())).thenAnswer(inv -> {
-            latch.countDown();
-            return CompletableFuture.completedFuture(null);
-        });
+        SerialSourceSubmitBridge.skipWithLockBusy(mockSerialSource, latch::countDown);
         return latch;
     }
 }

@@ -221,8 +221,9 @@ public class SMS8600V2DeviceCommandAttribute extends StringCommandAttribute {
                 cmdToSend = config.cmdTemplate;
         }
         // 事务策略下发命令并处理响应  加锁隔离
+        // （serial 4.1.0 的 asyncSendData 只收 byte[]；String 命令按本仓既有写法 getBytes 转换）
         return SerialTransactionStrategy.executeWithLambda(serialSource, source -> {
-            return serialSource.asyncSendData(cmdToSend)
+            return serialSource.asyncSendData(cmdToSend.getBytes())
                 .thenCompose(v -> {
                     ByteResponseHandlingContext<byte[]> context = new ByteResponseHandlingContext<>(type.getBytes());
                     //log.info("PM3006SDevice {} - Handling response context: {}", getId(), context);
