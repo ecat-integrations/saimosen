@@ -18,7 +18,6 @@ import com.ecat.core.Task.TaskManager;
 import com.ecat.core.Utils.TestTools;
 import com.ecat.integration.SerialIntegration.SerialIntegration;
 import com.ecat.integration.SerialIntegration.SerialSource;
-import com.ecat.integration.SerialIntegration.SerialSourceSubmitBridge;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlerStrategy;
 import com.ecat.integration.SerialIntegration.SendReadStrategy.ByteResponseHandlingContext;
 
@@ -362,7 +361,7 @@ public class SMS8600V2DeviceTest {
         List<String> fired = new CopyOnWriteArrayList<>();
         CountDownLatch allFour = new CountDownLatch(4);
         // P1 新语义：轮体执行=submitTransaction inline 档（提交即执行事务体，等价旧授予桩）
-        SerialSourceSubmitBridge.inlineSubmitTransaction(mockSerialSource);
+        SerialSourceSubmitStub.inlineSubmitTransaction(mockSerialSource);
         when(mockSerialSource.asyncSendData(any(byte[].class))).thenAnswer(inv -> {
             fired.add(new String((byte[]) inv.getArgument(0)));
             allFour.countDown();
@@ -388,7 +387,7 @@ public class SMS8600V2DeviceTest {
         CountDownLatch sixCommands = new CountDownLatch(6);       // 两轮 × 前三条
         CountDownLatch minuteFired = new CountDownLatch(1);
         // P1 新语义：轮体执行=submitTransaction inline 档（提交即执行事务体，等价旧授予桩）
-        SerialSourceSubmitBridge.inlineSubmitTransaction(mockSerialSource);
+        SerialSourceSubmitStub.inlineSubmitTransaction(mockSerialSource);
         when(mockSerialSource.asyncSendData(any(byte[].class))).thenAnswer(inv -> {
             String cmd = new String((byte[]) inv.getArgument(0));
             if ("calocha$".equals(cmd)) {
@@ -1269,7 +1268,7 @@ public class SMS8600V2DeviceTest {
      */
     private CountDownLatch pollingRoundProbe(int rounds) {
         CountDownLatch latch = new CountDownLatch(rounds);
-        SerialSourceSubmitBridge.skipWithLockBusy(mockSerialSource, latch::countDown);
+        SerialSourceSubmitStub.skipWithLockBusy(mockSerialSource, latch::countDown);
         return latch;
     }
 }

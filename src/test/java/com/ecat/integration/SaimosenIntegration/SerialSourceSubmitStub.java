@@ -1,4 +1,4 @@
-package com.ecat.integration.SerialIntegration;
+package com.ecat.integration.SaimosenIntegration;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -9,12 +9,16 @@ import org.mockito.stubbing.Answer;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 
+import com.ecat.integration.SerialIntegration.LockBusySkippedException;
+import com.ecat.integration.SerialIntegration.SerialPriority;
+import com.ecat.integration.SerialIntegration.SerialSource;
+
 /**
- * 消费仓测试桥：{@code SerialSource#submitTransaction} 是 serial 域包私有方法（P1 每口
- * 串行执行者落地后事务提交唯一缝，{@code SerialTransactionStrategy} 两入口都经它入队），
- * 设备仓测试包无法直接引用该方法做 stub。本桥落在同包下（plain classpath 跨 jar 同包
- * 合法），代设备仓测试完成 stub 装配。各档与 serial 仓契约测试
- * {@code SerialTransactionStrategyAsyncContractTest} 的 {@code newMockSource()} 同款。
+ * 本仓测试的串口事务打桩 helper：{@code SerialSource#submitTransaction} 是 serial 域
+ * 事务提交唯一缝（serial 4.1.0 起公开为测试缝），设备仓测试经 Mockito doAnswer 打桩它
+ * 模拟端口仲裁面，各档与 serial 仓契约测试的 mock 装配同款。本 helper 落在设备仓自己的
+ * 测试包，不依赖包私有可见性（bugs/bug-record-20261124-205000 债 2：拆除原跨 jar 同包
+ * SerialSourceSubmitStub 拷贝形态）。
  *
  * <p>全部档位用 {@code doAnswer().when(mock)} 形态而非 {@code when(mock.method())}：
  * 测试共享 setUp 已桩、单个用例再重桩时，when 形态的重桩调用会先命中旧 answer
@@ -24,28 +28,28 @@ import static org.mockito.ArgumentMatchers.anyLong;
  *   <li>{@link #inlineSubmitTransaction}：提交即在本线程执行事务体——等价旧 mock 装配的
  *       「acquire 立即授予」，供协议解析/生命周期逻辑测试（被测面不含端口仲裁）；</li>
  *   <li>{@link #skipWithLockBusy}：提交点返回 {@link LockBusySkippedException} 失败
- *       future——新模型 executePolling 等待预算耗尽时真源的真实返回形态，轮询链按
- *       「本轮跳过」内化，供锁忙降级回归测试；</li>
+ *       future——executePolling 等待预算耗尽时真源的真实返回形态，轮询链按「本轮跳过」
+ *       内化，供锁忙降级回归测试；</li>
  *   <li>{@link #raw}：透传自定义 Answer（写闸等需按优先级/互斥状态分支的语义测试）。</li>
  * </ul>
  *
  * @author coffee
  */
-public final class SerialSourceSubmitBridge {
+public final class SerialSourceSubmitStub {
 
-    private SerialSourceSubmitBridge() {
+    private SerialSourceSubmitStub() {
     }
 
     /**
      * inline 事务语义：stub submitTransaction 使事务体立即执行并透传其 future
-     * （无队列、无端口执行者，与本桥测试的设备逻辑无交涉）。
+     * （无队列、无端口执行者，与本测试的设备逻辑无交涉）。
      */
     public static void inlineSubmitTransaction(SerialSource mock) {
         inlineSubmitTransaction(mock, null, null);
     }
 
     /**
-     * inline 事务语义 + 提交点探针：每次事务提交（=新模型一场对话的开端）回调
+     * inline 事务语义 + 提交点探针：每次事务提交（=一场对话的开端）回调
      * {@code onTxSubmit}，供「轮已发射」「块事务数」类观测。
      */
     public static void inlineSubmitTransaction(SerialSource mock, Runnable onTxSubmit) {
@@ -68,7 +72,7 @@ public final class SerialSourceSubmitBridge {
                         result.whenComplete((r, ex) -> onTxComplete.run());
                     }
                     return result;
-                }).when(mock).submitTransaction(any(), any(), anyLong(), anyLong());
+                }).when(mock).submitTransaction(any(), any(SerialPriority.class), anyLong(), anyLong());
     }
 
     /**
@@ -84,7 +88,7 @@ public final class SerialSourceSubmitBridge {
                     skipped.completeExceptionally(new LockBusySkippedException(
                             "Polling transaction skipped: lock-busy stubbed for test"));
                     return skipped;
-                }).when(mock).submitTransaction(any(), any(), anyLong(), anyLong());
+                }).when(mock).submitTransaction(any(), any(SerialPriority.class), anyLong(), anyLong());
     }
 
     /**
@@ -93,6 +97,6 @@ public final class SerialSourceSubmitBridge {
      * execTimeoutMs)}，priority 仅以 toString 形态判别（枚举类型包私有，测试侧不可命名）。
      */
     public static void raw(SerialSource mock, Answer<CompletableFuture<Boolean>> answer) {
-        Mockito.doAnswer(answer).when(mock).submitTransaction(any(), any(), anyLong(), anyLong());
+        Mockito.doAnswer(answer).when(mock).submitTransaction(any(), any(SerialPriority.class), anyLong(), anyLong());
     }
 }

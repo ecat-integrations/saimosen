@@ -8,7 +8,6 @@ import com.ecat.core.State.AttributeClass;
 import com.ecat.core.State.AttributeStatus;
 import com.ecat.core.State.Unit.AirVolumeUnit;
 import com.ecat.integration.SerialIntegration.SerialSource;
-import com.ecat.integration.SerialIntegration.SerialSourceSubmitBridge;
 
 import org.junit.After;
 import org.junit.Before;
@@ -67,7 +66,7 @@ public class SMS8600V2CylinderGasWriteGateTest {
 
         // P1 新语义：写链经 executeWithLambda→submitTransaction 提交（包私有提交缝经
         // 同包测试桥装配），inline 档=提交即执行事务体（等价旧 acquire 立即授予装配）
-        SerialSourceSubmitBridge.inlineSubmitTransaction(mockSerialSource);
+        SerialSourceSubmitStub.inlineSubmitTransaction(mockSerialSource);
         when(mockSerialSource.asyncSendData(any(byte[].class)))
                 .thenReturn(CompletableFuture.completedFuture(Boolean.TRUE));
         when(mockSerialSource.asyncReadDataBytes()).thenAnswer(inv ->
