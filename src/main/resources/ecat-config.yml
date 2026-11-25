@@ -4,8 +4,8 @@ requires_core: ^4.0.0
 dependencies:
   - artifactId: integration-modbus
     groupId: com.ecat
-    version: ^4.0.0
+    version: ^4.1.0
   - artifactId: integration-serial
     groupId: com.ecat
-    version: ^4.0.0
+    version: ^5.0.0
 
